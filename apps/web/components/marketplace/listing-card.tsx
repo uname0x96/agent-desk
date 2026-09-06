@@ -48,7 +48,7 @@ export function ListingCard({
       data-selectable={status.selectable}
       className={cn(
         "h-full gap-5",
-        status.selectable ? "ring-foreground/10" : "bg-muted/40 ring-status-warn/40",
+        status.selectable ? "ring-panel-border" : "bg-muted/40 ring-status-warn/40",
       )}
     >
       <CardHeader className="gap-3">

@@ -140,7 +140,7 @@ function DashboardNav({ isOperator }: { isOperator: boolean }) {
   return (
     <nav
       aria-label="Sections"
-      className="grid grid-cols-1 gap-3 border-y border-border py-4 sm:grid-cols-2 lg:grid-cols-3"
+      className="grid grid-cols-1 gap-5 py-4 sm:grid-cols-2 lg:grid-cols-3"
     >
       {DESTINATIONS.map((destination) => (
         <DestinationLink key={destination.href} {...destination} />
@@ -168,9 +168,9 @@ function DestinationLink({
   return (
     <Link
       href={href}
-      className="flex flex-col gap-1 rounded-lg px-4 py-3 ring-1 ring-border ring-inset transition-colors hover:bg-muted"
+      className="gold-panel flex flex-col gap-2 px-6 py-7 ring-1 ring-panel-border ring-inset transition-colors hover:ring-primary"
     >
-      <span className="text-base font-semibold">{label}</span>
+      <span className="text-base font-bold text-heading uppercase">{label}</span>
       <span className="text-sm text-muted-foreground">{hint}</span>
     </Link>
   )

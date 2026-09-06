@@ -25,12 +25,12 @@ export function SiteHeader() {
   const pathname = usePathname()
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center gap-x-8 gap-y-2 px-6 py-4">
-        <Link href="/" className="text-xl font-bold tracking-tight">
+    <header className="sticky top-0 z-40 border-b border-border bg-header/95 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-8 gap-y-2 px-6 py-4">
+        <Link href="/" className="shrink-0 text-xl font-extrabold tracking-wide text-heading uppercase">
           AgentDesk
         </Link>
-        <nav aria-label="Main" className="flex flex-wrap items-center gap-x-6 gap-y-1 text-base">
+        <nav aria-label="Main" className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           {NAV.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`)
             return (
@@ -39,8 +39,8 @@ export function SiteHeader() {
                 href={item.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "font-medium transition-colors hover:text-foreground",
-                  active ? "text-foreground underline underline-offset-8" : "text-muted-foreground",
+                  "shrink-0 font-medium transition-colors hover:text-heading",
+                  active ? "text-heading underline decoration-2 underline-offset-8" : "text-muted-foreground",
                 )}
               >
                 {item.label}
