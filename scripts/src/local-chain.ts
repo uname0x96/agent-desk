@@ -8,14 +8,20 @@
  * the same `eip155:97` binding the x402 config publishes, so the entire stack, including
  * the facilitator and every agent, runs unmodified.
  *
- * Two things are local-only and both are visible rather than hidden. The ERC-8004
+ * Three things are local-only and all three are visible rather than hidden. The ERC-8004
  * IdentityRegistry is a mock whose runtime code is placed at the real registry address
- * with `anvil_setCode`. And `deployments/97.json` is overwritten with the Anvil addresses,
- * so `--restore` puts the tracked BSC testnet file back.
+ * with `anvil_setCode`. `deployments/97.json` is overwritten with the Anvil addresses.
+ * And `RPC_URLS` in `.env` is pointed at Anvil, because deploying locally while every
+ * process still dials the public BSC testnet is the failure this script exists to avoid:
+ * the addresses resolve to nothing there and every call reverts for no visible reason.
+ * `down` restores all three from `.local-chain/`.
+ *
+ * This path is for running the stack from the host with `tsx`. A container cannot reach
+ * `127.0.0.1:8545` on the host, so `docker compose` needs `host.docker.internal` instead.
  *
  * Usage:
- *   pnpm local:chain up        start anvil, deploy, fund, rewrite deployments/97.json
- *   pnpm local:chain down      stop anvil and restore deployments/97.json
+ *   pnpm local:chain up        start anvil, deploy, fund, point deployments and RPC_URLS at it
+ *   pnpm local:chain down      stop anvil and restore deployments/97.json and RPC_URLS
  */
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
@@ -27,6 +33,8 @@ const ROOT = join(import.meta.dirname, '..', '..')
 const RUNTIME = join(ROOT, '.local-chain')
 const PID_FILE = join(RUNTIME, 'anvil.pid')
 const BACKUP = join(RUNTIME, 'deployments-97.bsc-testnet.json')
+const RPC_BACKUP = join(RUNTIME, 'rpc-urls.bsc-testnet.txt')
+const ENV_FILE = join(ROOT, '.env')
 const DEPLOYMENTS = join(ROOT, 'deployments', '97.json')
 const IDENTITY_REGISTRY = '0x8004A818BFB912233c491871b3d84c89A494BD9e'
 const RPC = 'http://127.0.0.1:8545'
@@ -43,10 +51,9 @@ const chain = {
 } as const
 
 function env(): Record<string, string> {
-  const file = join(ROOT, '.env')
-  if (!existsSync(file)) throw new Error('.env is missing. See .env.example.')
+  if (!existsSync(ENV_FILE)) throw new Error('.env is missing. See .env.example.')
   const out: Record<string, string> = {}
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
+  for (const line of readFileSync(ENV_FILE, 'utf8').split('\n')) {
     const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim())
     if (match?.[1] !== undefined) out[match[1]] = match[2] ?? ''
   }
@@ -75,6 +82,37 @@ async function waitForRpc(timeoutMs = 20_000): Promise<void> {
       await new Promise((r) => setTimeout(r, 250))
     }
   }
+}
+
+/**
+ * Point `RPC_URLS` at Anvil, keeping the public list in `.local-chain/` so `down` can put
+ * it back. The line is rewritten in place rather than the file regenerated, so a `.env`
+ * holding secrets keeps its comments, its order, and everything else it holds.
+ */
+function useLocalRpc(): void {
+  if (!existsSync(ENV_FILE)) throw new Error('.env is missing. See .env.example.')
+  const lines = readFileSync(ENV_FILE, 'utf8').split('\n')
+  const index = lines.findIndex((line) => /^RPC_URLS=/.test(line.trim()))
+  const current = index === -1 ? '' : (lines[index] ?? '').trim().slice('RPC_URLS='.length)
+  if (current === RPC) return
+
+  if (!existsSync(RPC_BACKUP)) writeFileSync(RPC_BACKUP, current)
+  if (index === -1) lines.push(`RPC_URLS=${RPC}`)
+  else lines[index] = `RPC_URLS=${RPC}`
+  writeFileSync(ENV_FILE, lines.join('\n'))
+  console.log(`RPC_URLS now ${RPC}`)
+}
+
+/** The mirror of `useLocalRpc`. A missing backup means `up` never rewrote the line. */
+function restoreRpc(): void {
+  if (!existsSync(RPC_BACKUP) || !existsSync(ENV_FILE)) return
+  const original = readFileSync(RPC_BACKUP, 'utf8')
+  const lines = readFileSync(ENV_FILE, 'utf8').split('\n')
+  const index = lines.findIndex((line) => /^RPC_URLS=/.test(line.trim()))
+  if (index !== -1) lines[index] = `RPC_URLS=${original}`
+  writeFileSync(ENV_FILE, lines.join('\n'))
+  rmSync(RPC_BACKUP)
+  console.log('restored the BSC testnet RPC_URLS')
 }
 
 async function up(): Promise<void> {
@@ -127,7 +165,12 @@ async function up(): Promise<void> {
   }
   console.log(`tUSD ${deployed.tusd.address}`)
   console.log(`AgentDeskRegistry ${deployed.registry.address}`)
-  console.log('\ndeployments/97.json now points at the local chain. `pnpm local:chain down` restores it.')
+
+  useLocalRpc()
+  console.log(
+    '\ndeployments/97.json and RPC_URLS now point at the local chain.' +
+      ' `pnpm local:chain down` restores both.',
+  )
 }
 
 function down(): void {
@@ -146,6 +189,7 @@ function down(): void {
     rmSync(BACKUP)
     console.log('restored the BSC testnet deployments/97.json')
   }
+  restoreRpc()
 }
 
 const command = process.argv[2] ?? 'up'

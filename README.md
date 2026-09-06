@@ -36,7 +36,7 @@ compose file.
 ```bash
 cp .env.example .env          # then fill in the secrets listed below
 docker compose up -d          # postgres, migrate, web, worker, facilitator, 7 agents
-corepack pnpm doctor          # asserts the chain, the balances and the exchange
+corepack pnpm run doctor      # asserts the chain, the balances and the exchange
 corepack pnpm seed            # accounts, wallets, six listed agents, two workflows
 ```
 
@@ -49,7 +49,7 @@ place. Run it before recording.
 
 ### Secrets you have to supply
 
-`pnpm doctor` names each of these if it is missing.
+`pnpm run doctor` names each of these if it is missing.
 
 | Variable | What it is for |
 | --- | --- |
@@ -122,6 +122,7 @@ corepack pnpm vitest run --project unit     # no database needed
 corepack pnpm vitest run --project integration
 corepack pnpm typecheck
 corepack pnpm lint
+corepack pnpm run doctor                    # note `run`: `pnpm doctor` is pnpm's own
 cd contracts && forge test
 ```
 

@@ -20,7 +20,8 @@ Record each beat as one unbroken take. Cut only between beats.
 Run this checklist and do not start until every line passes.
 
 1. `docker compose up -d` and wait for every `/health` to answer 200.
-2. `corepack pnpm doctor` — passes, including the exchange checks.
+2. `corepack pnpm run doctor` — passes, including the exchange checks.
+   The `run` matters: `pnpm doctor` is pnpm's own command and always passes.
 3. `corepack pnpm seed` — six agents `active`, two Workflows created, mode `demo`.
 4. `docker compose restart agent-sloppy-research-2` — picks up `.env.seed`.
 5. `corepack pnpm seed --warm` — exits 0, Alpha Research reads 100 percent over

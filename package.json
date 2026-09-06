@@ -12,6 +12,7 @@
     "test": "vitest run",
     "seed": "tsx scripts/src/seed.ts",
     "doctor": "tsx scripts/src/doctor.ts",
+    "preflight": "pnpm run doctor",
     "db:generate": "pnpm --filter @agent-desk/db generate",
     "db:migrate": "pnpm --filter @agent-desk/db migrate",
     "local:chain": "pnpm --filter @agent-desk/scripts local:chain"
