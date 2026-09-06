@@ -20,6 +20,8 @@
     "viem": "^2.56.3",
     "pino": "^10.1.0",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "@agent-desk/scripts": "workspace:*",
+    "zod": "^4.5.4"
   }
 }
