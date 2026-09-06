@@ -9,7 +9,17 @@ optimizer = true
 optimizer_runs = 200
 evm_version = "cancun"
 via_ir = false
-fs_permissions = [{ access = "read-write", path = "./" }]
+# Deploy.s.sol writes deployments/97.json, which lives one level up from this project.
+fs_permissions = [
+    {access = "read-write", path = "../deployments"},
+    {access = "read", path = "./out"},
+]
+
+[lint]
+# `token()` and `platform()` are public getters the adapters call by name; renaming them
+# to TOKEN()/PLATFORM() to satisfy the immutable-casing lint would leak Solidity style
+# into the ABI that TypeScript consumes.
+exclude_lints = ["screaming-snake-case-immutable"]
 
 # BSC testnet (chain id 97). Verification uses the Etherscan V2 multichain API,
 # which serves testnet.bscscan.com under the same key.

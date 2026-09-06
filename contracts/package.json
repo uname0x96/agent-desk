@@ -3,8 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "deps": "forge install --root \"$PWD\" --no-git --shallow foundry-rs/forge-std@v1.11.0 OpenZeppelin/openzeppelin-contracts@v5.7.0",
     "build": "forge build && node script/export-abi.mjs",
     "test": "forge test",
+    "deploy": "forge script script/Deploy.s.sol:Deploy --rpc-url \"$RPC_URL\" --broadcast --verify && node script/sync-deployment.mjs",
     "typecheck": "true"
   }
 }
