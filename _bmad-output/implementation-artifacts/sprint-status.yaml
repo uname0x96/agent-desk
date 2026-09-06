@@ -41,11 +41,11 @@ development_status:
   1-3-self-hosted-x402-facilitator-on-eip155-97: done
   1-4-database-schema-migrations-and-compose-base: done
   1-5-agent-kit-and-the-binance-ticker-agent: done
-  1-6-signer-signing-policy-chain-writes-and-wallet-creation: in-progress
-  1-7-seed-listing-pipeline-puts-binance-ticker-on-chain: backlog
-  1-8-engine-pays-one-node-with-price-lock-and-receipt: backlog
-  1-9-live-run-view-and-public-schema-page: backlog
-  1-10-seed-doctor-and-one-command-bring-up: backlog
+  1-6-signer-signing-policy-chain-writes-and-wallet-creation: done
+  1-7-seed-listing-pipeline-puts-binance-ticker-on-chain: done
+  1-8-engine-pays-one-node-with-price-lock-and-receipt: done
+  1-9-live-run-view-and-public-schema-page: done
+  1-10-seed-doctor-and-one-command-bring-up: in-progress
   epic-1-retrospective: optional
 
   epic-2: backlog

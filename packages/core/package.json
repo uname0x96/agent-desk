@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./run": "./src/run/index.ts",
     "./signing": "./src/signing/index.ts",
+    "./listing": "./src/listing/index.ts",
     "./settlement": "./src/settlement/index.ts",
     "./ports": "./src/ports/index.ts",
     "./workflow": "./src/workflow/index.ts",
