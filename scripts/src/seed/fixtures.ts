@@ -113,6 +113,160 @@ export const SEED_WORKFLOW = {
   symbol: 'BNBUSDT',
 } as const
 
+// --------------------------------------------------- the demo account roster
+
+/**
+ * NFR-2 and PRD addendum §5: "two Builder Accounts and two Creator Accounts
+ * prepared in advance, each pre-funded with testnet BNB for gas and testnet
+ * USDT; a spare set for failover".
+ *
+ * Six accounts, each created through the same `wallet.create` path `POST
+ * /api/auth/sign-up` publishes, so a demo wallet is not a special kind of
+ * wallet — it is an ordinary System Wallet that happens to exist before anyone
+ * signed up. The Builder above is the first of them, kept under its own name
+ * because Story 1.10's Workflow and every printed credential already point at
+ * it.
+ *
+ * All six share the Builder's password so the demo has one thing to remember;
+ * each carries its own bcrypt hash, generated with the one-liner `fixtures.ts`
+ * records above. The Operator login is deliberately *not* in this roster: it is
+ * the Platform Account, and it keeps its own password.
+ */
+export interface SeedDemoAccount {
+  accountId: string
+  email: string
+  password: string
+  passwordHash: string
+  role: 'builder' | 'creator'
+  /** The failover pair of addendum §5, swapped in by `--activate-spare`. */
+  spare: boolean
+  /** How the seed's output names it. */
+  label: string
+}
+
+const DEMO_PASSWORD = 'agentdesk'
+
+export const SEED_DEMO_ACCOUNTS: readonly SeedDemoAccount[] = [
+  {
+    accountId: SEED_BUILDER.accountId,
+    email: SEED_BUILDER.email,
+    password: SEED_BUILDER.password,
+    passwordHash: SEED_BUILDER.passwordHash,
+    role: 'builder',
+    spare: false,
+    label: 'Builder 1 (demo)',
+  },
+  {
+    accountId: seedId('account', 'SEEDACC02'),
+    email: 'builder2@agentdesk.local',
+    password: DEMO_PASSWORD,
+    passwordHash: '$2b$10$EiigNm9OvIFMrE8GmJphpevhV3ruTAhlVSfZkJNtN1EnZJSnfVEUe',
+    role: 'builder',
+    spare: false,
+    label: 'Builder 2',
+  },
+  {
+    accountId: seedId('account', 'SEEDCRE01'),
+    email: 'creator@agentdesk.local',
+    password: DEMO_PASSWORD,
+    passwordHash: '$2b$10$mw72fkPSP5Zz0o1CAZZBSu94PJQwk9FViTiqmDFutBiF/eFdR6Adi',
+    role: 'creator',
+    spare: false,
+    label: 'Creator 1 (demo)',
+  },
+  {
+    accountId: seedId('account', 'SEEDCRE02'),
+    email: 'creator2@agentdesk.local',
+    password: DEMO_PASSWORD,
+    passwordHash: '$2b$10$r8qCONns7NQCeH0nBKy1u.H2mSHX5DJLvd83/ZUKrPQ2yHfq61ira',
+    role: 'creator',
+    spare: false,
+    label: 'Creator 2',
+  },
+  {
+    accountId: seedId('account', 'SEEDSPB01'),
+    email: 'builder-spare@agentdesk.local',
+    password: DEMO_PASSWORD,
+    passwordHash: '$2b$10$rcJZTMxuYQLPyGnu.MXwIeB9ueEUBseVgfXC7HJmUgJJMdkAg28NS',
+    role: 'builder',
+    spare: true,
+    label: 'Builder (spare)',
+  },
+  {
+    accountId: seedId('account', 'SEEDSPC01'),
+    email: 'creator-spare@agentdesk.local',
+    password: DEMO_PASSWORD,
+    passwordHash: '$2b$10$wOPgzrFIMzsHHp8V2Xtxlufk8iYnhBIZ3DC3y7zOhcOElcQQKEoTa',
+    role: 'creator',
+    spare: true,
+    label: 'Creator (spare)',
+  },
+]
+
+/** The demo pair the Workflows and `.env.seed` point at until `--activate-spare`. */
+export const SEED_DEMO_BUILDER = SEED_DEMO_ACCOUNTS[0]!
+export const SEED_DEMO_CREATOR = SEED_DEMO_ACCOUNTS[2]!
+/** The failover pair of addendum §5. */
+export const SEED_SPARE_BUILDER = SEED_DEMO_ACCOUNTS[4]!
+export const SEED_SPARE_CREATOR = SEED_DEMO_ACCOUNTS[5]!
+
+/**
+ * Addendum §6, "Daily Fee Budget default": 100 USDT on demo Accounts. Stored in
+ * base units on `accounts.daily_fee_budget` (AD-13), which overrides the
+ * platform default for exactly these six rows.
+ */
+export const SEED_DEMO_DAILY_FEE_BUDGET = toBaseUnits('100').toString()
+
+// ------------------------------------------------------- the demo Workflows
+
+/**
+ * Story 2.10's two Workflows, both owned by the demo Builder and both over
+ * BNBUSDT.
+ *
+ * They differ in exactly one Node — the `research` Provider — which is the whole
+ * point: the same five-Node chain, one Provider swap, and the demo's Settlement
+ * beat separates them. The Order Cap is 10 USDT on both, which FR-4 requires as
+ * soon as a chain has an `execution` Node.
+ */
+export interface SeedChain {
+  workflowId: string
+  name: string
+  symbol: string
+  /** FR-4, decimal USDT. */
+  orderCapUsdt: string
+  /** The `research` Provider that distinguishes the two chains. */
+  research: 'alpha-research' | 'sloppy-research'
+}
+
+export const SEED_GOOD_CHAIN: SeedChain = {
+  workflowId: seedId('workflow', 'SEEDWFGD01'),
+  name: 'BNBUSDT full chain (good)',
+  symbol: 'BNBUSDT',
+  orderCapUsdt: '10',
+  research: 'alpha-research',
+}
+
+export const SEED_SLOPPY_CHAIN: SeedChain = {
+  workflowId: seedId('workflow', 'SEEDWFSPY01'),
+  name: 'BNBUSDT full chain (sloppy)',
+  symbol: 'BNBUSDT',
+  orderCapUsdt: '10',
+  research: 'sloppy-research',
+}
+
+export const SEED_CHAINS: readonly SeedChain[] = [SEED_GOOD_CHAIN, SEED_SLOPPY_CHAIN]
+
+/**
+ * Every Workflow the demo pair owns, including Story 1.10's one-Node Binance
+ * Ticker chain: `--activate-spare` moves all of them, because a failover that
+ * left the smoke-test Workflow on the broken wallet would be a failover with a
+ * trap in it.
+ */
+export const SEED_DEMO_WORKFLOW_IDS: readonly string[] = [
+  SEED_WORKFLOW.workflowId,
+  ...SEED_CHAINS.map((chain) => chain.workflowId),
+]
+
 /** Every table `pnpm seed --reset` truncates, children before parents. */
 export const SEED_TABLES = [
   'settlements',

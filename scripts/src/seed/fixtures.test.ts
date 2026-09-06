@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { isId } from '@agent-desk/schemas'
+import { isId, toBaseUnits, toDecimalUsdt } from '@agent-desk/schemas'
 import {
   BCRYPT_COST,
   SEED_BINANCE_TICKER,
   SEED_BINANCE_TICKER_PRICE,
   SEED_BINANCE_TICKER_STAKE,
   SEED_BUILDER,
+  SEED_CHAINS,
+  SEED_DEMO_ACCOUNTS,
+  SEED_DEMO_BUILDER,
+  SEED_DEMO_CREATOR,
+  SEED_DEMO_DAILY_FEE_BUDGET,
+  SEED_DEMO_WORKFLOW_IDS,
+  SEED_GOOD_CHAIN,
   SEED_OPERATOR,
+  SEED_SLOPPY_CHAIN,
+  SEED_SPARE_BUILDER,
+  SEED_SPARE_CREATOR,
   SEED_TABLES,
   SEED_WORKFLOW,
   seedId,
@@ -88,5 +98,82 @@ describe('parseSeedArgs', () => {
     expect(parseSeedArgs(['-y'])).toMatchObject({ yes: true })
     expect(parseSeedArgs(['--rest']).unknown).toEqual(['--rest'])
     expect(parseSeedArgs([])).toMatchObject({ reset: false, yes: false, help: false })
+  })
+})
+
+describe('the demo account roster', () => {
+  const BCRYPT_HASH = new RegExp(`^\\$2[aby]\\$${BCRYPT_COST}\\$[./A-Za-z0-9]{53}$`)
+
+  it('is two Builders, two Creators and one spare pair (NFR-2, addendum §5)', () => {
+    expect(SEED_DEMO_ACCOUNTS).toHaveLength(6)
+    const primary = SEED_DEMO_ACCOUNTS.filter((account) => !account.spare)
+    const spare = SEED_DEMO_ACCOUNTS.filter((account) => account.spare)
+
+    expect(primary.filter((account) => account.role === 'builder')).toHaveLength(2)
+    expect(primary.filter((account) => account.role === 'creator')).toHaveLength(2)
+    expect(spare.map((account) => account.role)).toEqual(['builder', 'creator'])
+  })
+
+  it('names the demo pair and the spare pair from the roster itself', () => {
+    expect(SEED_DEMO_BUILDER.role).toBe('builder')
+    expect(SEED_DEMO_BUILDER.spare).toBe(false)
+    expect(SEED_DEMO_CREATOR.role).toBe('creator')
+    expect(SEED_DEMO_CREATOR.spare).toBe(false)
+    expect(SEED_SPARE_BUILDER).toMatchObject({ role: 'builder', spare: true })
+    expect(SEED_SPARE_CREATOR).toMatchObject({ role: 'creator', spare: true })
+  })
+
+  it("keeps Story 1.10's Builder as the first Builder, so its Workflow keeps its owner", () => {
+    expect(SEED_DEMO_BUILDER.accountId).toBe(SEED_BUILDER.accountId)
+    expect(SEED_DEMO_BUILDER.email).toBe(SEED_BUILDER.email)
+  })
+
+  it('gives every account a distinct valid id and email, and a usable bcrypt hash', () => {
+    const ids = SEED_DEMO_ACCOUNTS.map((account) => account.accountId)
+    const emails = SEED_DEMO_ACCOUNTS.map((account) => account.email)
+    expect(new Set(ids).size).toBe(6)
+    expect(new Set(emails).size).toBe(6)
+    for (const account of SEED_DEMO_ACCOUNTS) {
+      expect(account.accountId).toMatch(ACCOUNT_ID)
+      expect(isId('account', account.accountId)).toBe(true)
+      expect(account.passwordHash).toMatch(BCRYPT_HASH)
+    }
+    // Distinct salts: no two rows carry the same digest.
+    expect(new Set(SEED_DEMO_ACCOUNTS.map((a) => a.passwordHash)).size).toBe(6)
+  })
+
+  it('never puts the Operator login in the demo roster', () => {
+    expect(SEED_DEMO_ACCOUNTS.map((account) => account.email)).not.toContain(SEED_OPERATOR.email)
+  })
+
+  it('budgets 100 tUSD per demo Account in base units (addendum §6, AD-13)', () => {
+    expect(SEED_DEMO_DAILY_FEE_BUDGET).toBe(toBaseUnits('100').toString())
+    expect(toDecimalUsdt(SEED_DEMO_DAILY_FEE_BUDGET)).toBe('100')
+  })
+})
+
+describe('the two demo chains', () => {
+  it('differ in exactly one thing: the research Provider', () => {
+    expect(SEED_GOOD_CHAIN.research).toBe('alpha-research')
+    expect(SEED_SLOPPY_CHAIN.research).toBe('sloppy-research')
+    expect(SEED_GOOD_CHAIN.symbol).toBe(SEED_SLOPPY_CHAIN.symbol)
+    expect(SEED_GOOD_CHAIN.orderCapUsdt).toBe(SEED_SLOPPY_CHAIN.orderCapUsdt)
+  })
+
+  it('carries the Order Cap of 10 USDT FR-4 requires of an execution chain', () => {
+    for (const chain of SEED_CHAINS) expect(chain.orderCapUsdt).toBe('10')
+  })
+
+  it('has a distinct, valid workflow id per chain', () => {
+    expect(SEED_GOOD_CHAIN.workflowId).not.toBe(SEED_SLOPPY_CHAIN.workflowId)
+    for (const chain of SEED_CHAINS) expect(isId('workflow', chain.workflowId)).toBe(true)
+  })
+
+  it("lists both chains plus Story 1.10's Workflow as the ones a spare swap moves", () => {
+    expect(SEED_DEMO_WORKFLOW_IDS).toEqual([
+      SEED_WORKFLOW.workflowId,
+      SEED_GOOD_CHAIN.workflowId,
+      SEED_SLOPPY_CHAIN.workflowId,
+    ])
   })
 })
