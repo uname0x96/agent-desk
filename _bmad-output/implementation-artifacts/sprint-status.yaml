@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-06-2026 12:35
-last_updated: 09-06-2026 14:05
+last_updated: 09-06-2026 19:20
 project: agent-desk
 project_key: NOKEY
 tracking_system: file-system
@@ -55,37 +55,37 @@ development_status:
   2-4-guardrail-risk-agent: done
   2-5-binance-spot-executor-agent: done
   2-6-telegram-notifier-agent: done
-  2-7-workflow-builder-with-validation-cost-preview-and-provider-s: in-progress
-  2-8-engine-runs-the-full-chain-with-mapping-skips-and-order-guar: in-progress
-  2-9-stop-on-failure-notify-anyway-and-the-timeout-sweep: backlog
+  2-7-workflow-builder-with-validation-cost-preview-and-provider-s: done
+  2-8-engine-runs-the-full-chain-with-mapping-skips-and-order-guar: done
+  2-9-stop-on-failure-notify-anyway-and-the-timeout-sweep: done
   2-10-six-seed-agents-listed-and-the-full-chain-rehearsed: in-progress
   epic-2-retrospective: optional
 
-  epic-3: in-progress
-  3-1-sign-up-with-a-system-wallet: in-progress
-  3-2-daily-fee-budget-and-telegram-chat-id-in-settings: in-progress
-  3-3-listing-form-and-verification-progress: backlog
-  3-4-paid-verification-call-before-identity-and-stake: backlog
-  3-5-marketplace-browse-and-compare: in-progress
-  3-6-creator-manages-price-stake-top-up-and-pause: backlog
-  3-7-a-stranger-lists-a-live-agent-in-under-30-seconds: backlog
+  epic-3: done
+  3-1-sign-up-with-a-system-wallet: done
+  3-2-daily-fee-budget-and-telegram-chat-id-in-settings: done
+  3-3-listing-form-and-verification-progress: done
+  3-4-paid-verification-call-before-identity-and-stake: done
+  3-5-marketplace-browse-and-compare: done
+  3-6-creator-manages-price-stake-top-up-and-pause: done
+  3-7-a-stranger-lists-a-live-agent-in-under-30-seconds: done
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-settlement-tick-scores-research-and-risk-calls: backlog
-  4-2-failure-after-payment-is-scored-immediately: backlog
-  4-3-slash-and-refund-in-one-transaction-pause-at-zero-stake: backlog
-  4-4-reputation-recomputed-and-written-on-chain: backlog
-  4-5-stake-reservation-refuses-uncovered-calls: backlog
-  4-6-demo-warm-up-and-slash-rehearsal: backlog
+  epic-4: in-progress
+  4-1-settlement-tick-scores-research-and-risk-calls: done
+  4-2-failure-after-payment-is-scored-immediately: done
+  4-3-slash-and-refund-in-one-transaction-pause-at-zero-stake: done
+  4-4-reputation-recomputed-and-written-on-chain: done
+  4-5-stake-reservation-refuses-uncovered-calls: done
+  4-6-demo-warm-up-and-slash-rehearsal: in-progress
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-dashboard-home-and-live-run-feed: backlog
-  5-2-payments-view: backlog
-  5-3-settlement-view: backlog
-  5-4-agent-detail-page: backlog
-  5-5-demo-split-view: backlog
+  epic-5: in-progress
+  5-1-dashboard-home-and-live-run-feed: in-progress
+  5-2-payments-view: in-progress
+  5-3-settlement-view: in-progress
+  5-4-agent-detail-page: in-progress
+  5-5-demo-split-view: in-progress
   epic-5-retrospective: optional
 
 # SPRINT SHAPE — Binance hackathon, submission 2026-09-08, three build days from 2026-09-06, team of five
@@ -129,3 +129,15 @@ action_items:
     action: "Run the four day-1 checks from the architecture spine's Open Questions. Foundry 1.8.1 is installed and the OZ v5.7.0 ERC3009 compile check runs inside Story 1.2; the facilitator check runs inside Story 1.3; the Cloudflare DNS decision for a stable agentURI is still open, with the data: URI path as the fallback; the faucet check is the item above"
     owner: "unassigned"
     status: in-progress
+  - epic: 1
+    action: "deployments/97.json currently holds the local Anvil addresses, because `pnpm local:chain up` is running and rewrote it. The tracked BSC testnet file at .local-chain/deployments-97.bsc-testnet.json still has zero addresses - the contracts have never been deployed to the real testnet, because the wallets are unfunded. Run `pnpm local:chain down`, fund the wallets, then deploy for real before submitting"
+    owner: "unassigned"
+    status: open
+  - epic: 5
+    action: "Record the narrated video. The script, the pre-flight checklist and the three beats are in docs/DEMO-SCRIPT.md. Record at 1280 x 720, one unbroken take per beat, and record the whole sequence once as a backup before the live take"
+    owner: "unassigned"
+    status: open
+  - epic: 5
+    action: "Flip the GitHub repository from private to public before submitting the git link. README.md and docs/SUBMISSION.md are the two files a judge opens first"
+    owner: "unassigned"
+    status: open
