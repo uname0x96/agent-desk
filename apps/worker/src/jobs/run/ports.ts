@@ -72,6 +72,15 @@ export interface CallPatch {
   endedAt?: Date
 }
 
+/** A Run the sweep is considering, and nothing more than it needs to decide. */
+export interface SweepableRun {
+  runId: string
+  /** For the `finalize` delivery's singleton key and the log line. */
+  workflowId: string
+  startedAt: Date | null
+  createdAt: Date
+}
+
 export interface RunStore {
   load(runId: string): Promise<RunRecord | null>
   /** AD-4: set at pickup, and only if it is still null. Returns the effective value. */
@@ -84,10 +93,44 @@ export interface RunStore {
   endRun(runId: string, status: RunStatus, at: Date, failureReason: string | null): Promise<boolean>
   /** AD-4: at Run end every still-`pending` Call becomes `skipped`. */
   skipPendingCalls(runId: string, reason: SkipReason, at: Date): Promise<number>
+  /**
+   * Story 2.9: the sweep's skip. Every `pending` Call *except* the terminal
+   * `notify` filter, which the `finalize` delivery still has to run and which
+   * `runNotifyFilter` will not touch once it is no longer `pending`.
+   */
+  skipPendingChainCalls(runId: string, reason: SkipReason, at: Date): Promise<number>
   /** FR-24: one Node the chain no longer needs. Never requested, never paid. */
   skipCall(callId: string, reason: SkipReason, at: Date): Promise<void>
   /** AD-5: the authorization signed for this Call, so a retry finds its header. */
   readPaymentPayload(callId: string): Promise<StoredPaymentPayload | null>
+  /**
+   * Story 2.9: every Run still `running` whose sweep clock is at or before
+   * `before` — the candidates for the timeout sweep, in the order they got
+   * stuck.
+   */
+  runsToSweep(before: Date, limit?: number): Promise<readonly SweepableRun[]>
+}
+
+// --------------------------------------------------------------- publisher
+
+/**
+ * The two jobs the run side publishes. Both are fire-and-forget: nothing the
+ * engine or the sweep writes depends on the send landing, because AD-9's loop
+ * re-derives its own work from rows on the next tick.
+ */
+export interface RunPublisher {
+  /**
+   * AD-4: after the sweep has ended a Run, the engine runs only the terminal
+   * `notify` filter for it. Returns the job id, or null when pg-boss suppressed
+   * the send because one is already queued or active for this Run.
+   */
+  finalizeRun(runId: string): Promise<string | null>
+  /**
+   * AD-9 / Story 2.9: a `research` or `risk` Call that ended
+   * `failed_after_payment` is scored immediately rather than after the
+   * Settlement Window. Consumed in Epic 4; a no-op handler is registered now.
+   */
+  settlementTick(callId: string): Promise<string | null>
 }
 
 // ------------------------------------------------------------ agent client

@@ -8,8 +8,10 @@ import type {
   PaidResult,
   PaymentRequiredPayload,
   RunCallRecord,
+  RunPublisher,
   RunRecord,
   RunStore,
+  SweepableRun,
   UnpaidResult,
 } from './ports.ts'
 
@@ -109,6 +111,8 @@ export class FakeStore implements RunStore {
   endRunAttempts: { status: RunStatus; applied: boolean }[] = []
   skipSweeps: { reason: SkipReason; count: number }[] = []
   skippedCalls: { callId: string; reason: SkipReason }[] = []
+  /** `runs.created_at`, which the sweep falls back to when nothing started. */
+  createdAt = START
 
   constructor(options: { calls: StoredCall[]; run?: Partial<RunRecord> }) {
     this.calls = options.calls
@@ -184,9 +188,22 @@ export class FakeStore implements RunStore {
   }
 
   skipPendingCalls(_runId: string, reason: SkipReason, at: Date): Promise<number> {
+    return this.skipPending(reason, at, () => true)
+  }
+
+  /** Story 2.9: the sweep's skip holds the terminal filter back. */
+  skipPendingChainCalls(_runId: string, reason: SkipReason, at: Date): Promise<number> {
+    return this.skipPending(reason, at, (call) => call.nodeType !== 'notify')
+  }
+
+  private skipPending(
+    reason: SkipReason,
+    at: Date,
+    include: (call: StoredCall) => boolean,
+  ): Promise<number> {
     let count = 0
     for (const call of this.calls) {
-      if (call.status !== 'pending') continue
+      if (call.status !== 'pending' || !include(call)) continue
       call.status = 'skipped'
       call.skipReason = reason
       call.endedAt = at
@@ -194,6 +211,21 @@ export class FakeStore implements RunStore {
     }
     this.skipSweeps.push({ reason, count })
     return Promise.resolve(count)
+  }
+
+  /** The SQL narrows on `coalesce(started_at, created_at)`; the double does too. */
+  runsToSweep(before: Date): Promise<readonly SweepableRun[]> {
+    if (this.run.record.status !== 'running') return Promise.resolve([])
+    const clock = this.run.record.startedAt ?? this.createdAt
+    if (clock.getTime() > before.getTime()) return Promise.resolve([])
+    return Promise.resolve([
+      {
+        runId: this.run.record.id,
+        workflowId: this.run.record.workflowId,
+        startedAt: this.run.record.startedAt,
+        createdAt: this.createdAt,
+      },
+    ])
   }
 
   skipCall(callId: string, reason: SkipReason, at: Date): Promise<void> {
@@ -305,9 +337,33 @@ export const STORED_PAYLOAD: StoredPaymentPayload = {
   signature: `0x${'cd'.repeat(65)}`,
 }
 
+/**
+ * Story 2.9: the `RunPublisher` as a recorder. Both sends are best-effort, so a
+ * test asserts on what was published rather than on the engine reacting to it.
+ */
+export class FakePublisher implements RunPublisher {
+  finalized: string[] = []
+  ticks: string[] = []
+  /** Set by a test to make a send throw, as a queue outage would. */
+  failWith: Error | null = null
+
+  finalizeRun(runId: string): Promise<string | null> {
+    if (this.failWith) return Promise.reject(this.failWith)
+    this.finalized.push(runId)
+    return Promise.resolve(`job_finalize_${this.finalized.length}`)
+  }
+
+  settlementTick(callId: string): Promise<string | null> {
+    if (this.failWith) return Promise.reject(this.failWith)
+    this.ticks.push(callId)
+    return Promise.resolve(`job_tick_${this.ticks.length}`)
+  }
+}
+
 export interface Harness {
   store: FakeStore
   agent: FakeAgent
+  publisher: FakePublisher
   engine: ReturnType<typeof createRunEngine>
   signPaymentCalls: unknown[]
   authorizationChecks: { authorizer: string; nonce: string }[]
@@ -324,9 +380,11 @@ export function harness(options: {
   authorizationUsed?: boolean | (() => Promise<boolean>)
   lastPrice?: () => Promise<string>
   balanceUsdt?: () => Promise<string>
+  publisher?: FakePublisher
 }): Harness {
   const store = new FakeStore({ calls: options.calls ?? [pendingCall()], ...(options.run ? { run: options.run } : {}) })
   const agent = new FakeAgent()
+  const publisher = options.publisher ?? new FakePublisher()
   const signPaymentCalls: unknown[] = []
   const authorizationChecks: { authorizer: string; nonce: string }[] = []
   const lastPriceCalls: string[] = []
@@ -338,6 +396,7 @@ export function harness(options: {
   const deps: RunEngineDeps = {
     store,
     agent,
+    publisher,
     clock,
     signing: {
       signPayment: (walletId, requirements) => {
@@ -381,6 +440,7 @@ export function harness(options: {
   return {
     store,
     agent,
+    publisher,
     engine: createRunEngine(deps),
     signPaymentCalls,
     authorizationChecks,
@@ -489,6 +549,9 @@ export interface ChainHarnessOptions {
   sign?: () => SigningOutcome<SignedPayment>
   balanceUsdt?: () => Promise<string>
   lastPrice?: () => Promise<string>
+  publisher?: FakePublisher
+  /** AD-6: what `tUSD.authorizationState` answers when a paid attempt times out. */
+  authorizationUsed?: boolean | (() => Promise<boolean>)
 }
 
 /**
@@ -511,6 +574,10 @@ export function chainHarness(options: ChainHarnessOptions = {}): Harness {
     ...(options.sign ? { sign: options.sign } : {}),
     ...(options.balanceUsdt ? { balanceUsdt: options.balanceUsdt } : {}),
     ...(options.lastPrice ? { lastPrice: options.lastPrice } : {}),
+    ...(options.publisher ? { publisher: options.publisher } : {}),
+    ...(options.authorizationUsed === undefined
+      ? {}
+      : { authorizationUsed: options.authorizationUsed }),
   })
 
   for (const node of nodes) {

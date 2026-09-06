@@ -7,6 +7,7 @@ import {
   type ListingDetailResponse,
   type VerificationCallView,
 } from './listing-progress.ts'
+import { MANAGE_PREFIXES } from './manage-history.ts'
 import { selectListingById } from './query.ts'
 
 /**
@@ -108,25 +109,40 @@ async function readVerificationCall(listingId: string): Promise<VerificationCall
   }
 }
 
-/** AD-8: exactly the two intents this pipeline may create, in step order. */
+/**
+ * Every `chain_tx` row this Listing has: the two the pipeline creates, in step
+ * order, then the Creator's own changes oldest first (Story 3.6).
+ *
+ * AD-2 makes this the price and pause history — "price history is the `list:`
+ * row plus `price:` rows of `chain_tx`" — so the manage page reads it rather
+ * than a table of its own, and every row carries the `before` and `after` that
+ * were captured at enqueue.
+ *
+ * The manage keys end in an epoch millisecond, so they are matched by prefix;
+ * `chain_tx_intent_key_pattern_idx` is the index that serves exactly this.
+ */
 async function readChainTx(listingId: string): Promise<ChainTxView[]> {
-  const keys = [intentKeys.identity(listingId), intentKeys.list(listingId)]
+  const pipelineKeys = [intentKeys.identity(listingId), intentKeys.list(listingId)]
+  const prefixes = MANAGE_PREFIXES.map((prefix) => `${prefix}:${listingId}:%`)
+
   const rows = await db().query.chainTx.findMany({
-    where: (row, { inArray }) => inArray(row.intentKey, keys),
+    where: (row, { inArray, like, or }) =>
+      or(inArray(row.intentKey, pipelineKeys), ...prefixes.map((prefix) => like(row.intentKey, prefix))),
+    orderBy: (row, { asc }) => [asc(row.createdAt), asc(row.intentKey)],
   })
 
-  return keys.flatMap((key) => {
-    const row = rows.find((candidate) => candidate.intentKey === key)
-    if (!row) return []
-    return [
-      {
-        intent_key: row.intentKey,
-        status: row.status,
-        tx_hash: row.txHash,
-        payload: (row.payload ?? {}) as Record<string, unknown>,
-        created_at: row.createdAt.toISOString(),
-        confirmed_at: row.confirmedAt?.toISOString() ?? null,
-      },
-    ]
-  })
+  const byKey = new Map(rows.map((row) => [row.intentKey, row]))
+  const ordered = [
+    ...pipelineKeys.flatMap((key) => (byKey.has(key) ? [byKey.get(key)!] : [])),
+    ...rows.filter((row) => !pipelineKeys.includes(row.intentKey)),
+  ]
+
+  return ordered.map((row) => ({
+    intent_key: row.intentKey,
+    status: row.status,
+    tx_hash: row.txHash,
+    payload: (row.payload ?? {}) as Record<string, unknown>,
+    created_at: row.createdAt.toISOString(),
+    confirmed_at: row.confirmedAt?.toISOString() ?? null,
+  }))
 }

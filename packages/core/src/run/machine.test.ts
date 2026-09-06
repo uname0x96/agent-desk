@@ -15,10 +15,13 @@ import {
   isCallPaid,
   isCallTerminal,
   isPastDeadline,
+  isRunStuck,
+  isScoredNodeType,
   isSweepable,
   nextStep,
   pendingCallIds,
   successStatus,
+  sweepClockOf,
   type CallState,
 } from './machine.ts'
 
@@ -180,6 +183,33 @@ describe('deadline', () => {
   })
 })
 
+describe('the sweep clock', () => {
+  const CREATED = new Date(START.getTime() - 5_000)
+
+  it('is started_at once the worker has picked the Run up', () => {
+    expect(sweepClockOf({ startedAt: START, createdAt: CREATED })).toEqual(START)
+  })
+
+  it('falls back to created_at for a Run no worker ever started', () => {
+    expect(sweepClockOf({ startedAt: null, createdAt: CREATED })).toEqual(CREATED)
+  })
+
+  it('bounds a Run abandoned before started_at was ever written', () => {
+    const run = { startedAt: null, createdAt: CREATED }
+    // The engine's own rule can never end this Run: it has no started_at.
+    expect(isPastDeadline(run.startedAt, new Date(CREATED.getTime() + 600_000))).toBe(false)
+    expect(isRunStuck(run, new Date(CREATED.getTime() + 164_999))).toBe(false)
+    expect(isRunStuck(run, new Date(CREATED.getTime() + 165_000))).toBe(true)
+  })
+
+  it('measures a started Run from started_at, not from created_at', () => {
+    const run = { startedAt: START, createdAt: CREATED }
+    // 165 s after `created_at` is only 160 s after `started_at`: not yet stuck.
+    expect(isRunStuck(run, new Date(CREATED.getTime() + 165_001))).toBe(false)
+    expect(isRunStuck(run, new Date(START.getTime() + 165_001))).toBe(true)
+  })
+})
+
 describe('run outcome', () => {
   it('completes a Workflow with no execution Node', () => {
     expect(successStatus({ hasExecutionNode: false })).toBe('completed')
@@ -189,6 +219,13 @@ describe('run outcome', () => {
     expect(successStatus({ hasExecutionNode: true, executionFilled: true })).toBe('completed')
     expect(successStatus({ hasExecutionNode: true, executionFilled: false })).toBe('completed, no order')
     expect(successStatus({ hasExecutionNode: true })).toBe('completed, no order')
+  })
+
+  it('scores research and risk Calls and no other Type', () => {
+    for (const nodeType of ['research', 'risk']) expect(isScoredNodeType(nodeType)).toBe(true)
+    for (const nodeType of ['data', 'execution', 'notify']) {
+      expect(isScoredNodeType(nodeType)).toBe(false)
+    }
   })
 
   it('names the failed Node in the Run status', () => {

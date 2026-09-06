@@ -3,6 +3,7 @@ import { PgBoss } from 'pg-boss'
 import { db } from '@agent-desk/db'
 import { QUEUES } from '@agent-desk/schemas'
 import type { CreateListingDeps } from './create-listing.ts'
+import type { ManageListingDeps } from './manage-listing.ts'
 
 /**
  * What `POST /api/listings` needs from the outside world, built once per process
@@ -51,6 +52,24 @@ export function createListingDeps(): CreateListingDeps {
       // from anywhere else — gets one pipeline, not two identities.
       const instance = await getBoss()
       await instance.send(QUEUES.listingVerify, { listing_id: listingId }, { singletonKey: listingId })
+    },
+  }
+}
+
+/**
+ * Story 3.6: the three manage routes. `listing.write` is `exclusive` too, and
+ * its singleton key is the **intent key** rather than the listing id — AD-8
+ * makes the intent key the identity of the transaction, so exclusivity on it
+ * means "this transaction is queued or active at most once" while still letting
+ * a Creator change a price and then pause without the second change being
+ * dropped as a duplicate of the first.
+ */
+export function createManageDeps(): ManageListingDeps {
+  return {
+    db: db(),
+    publish: async (job) => {
+      const instance = await getBoss()
+      await instance.send(QUEUES.listingWrite, job, { singletonKey: job.intent_key })
     },
   }
 }

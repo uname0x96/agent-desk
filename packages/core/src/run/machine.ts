@@ -213,6 +213,38 @@ export function isSweepable(
   return isPastDeadline(startedAt, now, budgetMs + graceMs)
 }
 
+/** What the sweep needs to know about a Run to decide it is stuck. */
+export interface SweepClock {
+  startedAt: Date | null
+  /** `runs.created_at`, written by the insert that made the Run `running`. */
+  createdAt: Date
+}
+
+/**
+ * Story 2.9: the clock the sweep measures against, which is *not* the engine's.
+ *
+ * The engine's 120 s budget runs from `started_at`, because that is when the
+ * worker picked the Run up and began spending it. The sweep cannot use the same
+ * rule: the Run it exists to rescue is the one whose worker died — possibly
+ * before it ever set `started_at` — and `isPastDeadline(null, …)` is false
+ * forever, which is precisely how a Run comes to sit in `running` with nothing
+ * left to move it. Falling back to `created_at` bounds every `running` Run,
+ * started or not, and the 45 s of grace keeps the sweep off the engine's heels.
+ */
+export function sweepClockOf(run: SweepClock): Date {
+  return run.startedAt ?? run.createdAt
+}
+
+/** Story 2.9: the same rule as {@link isSweepable}, over the sweep's own clock. */
+export function isRunStuck(
+  run: SweepClock,
+  now: Date,
+  budgetMs: number = RUN_DEADLINE_MS,
+  graceMs: number = RUN_SWEEP_GRACE_MS,
+): boolean {
+  return isSweepable(sweepClockOf(run), now, budgetMs, graceMs)
+}
+
 // -------------------------------------------------------------- run outcome
 
 export interface RunOutcomeInput {
@@ -235,6 +267,24 @@ export function successStatus(input: RunOutcomeInput): RunStatusLiteral {
 /** AD-4: `<Node>` is the Type name of the Call that failed. */
 export function failureStatus(nodeType: AgentType): RunStatus {
   return failedAt(nodeType)
+}
+
+/**
+ * AD-9: `research` and `risk` are the only Types that are ever scored, so they
+ * are the only ones that reserve Stake and the only ones the engine publishes a
+ * `settlement.tick` for (Story 2.9).
+ *
+ * `packages/db` states the same two Types for its reservation query. The
+ * duplication is deliberate: AD-1 forbids core from importing the database
+ * package, and the engine reads this rule on a path that must not know one
+ * exists. Both lists are two words long and both cite AD-9.
+ */
+export const SCORED_NODE_TYPES: readonly AgentType[] = ['research', 'risk']
+
+const SCORED_NODE_TYPE_SET = new Set<string>(SCORED_NODE_TYPES)
+
+export function isScoredNodeType(nodeType: string): boolean {
+  return SCORED_NODE_TYPE_SET.has(nodeType)
 }
 
 export const TIMED_OUT: RunStatusLiteral = 'timed out'

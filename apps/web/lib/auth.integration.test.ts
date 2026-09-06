@@ -119,7 +119,11 @@ async function account(
     isOperator: options.isOperator ?? false,
     dailyFeeBudget: options.dailyFeeBudget ?? null,
     telegramChatId: options.telegramChatId ?? null,
-    ...(options.budgetWindowStart ? { budgetWindowStart: options.budgetWindowStart } : {}),
+    // The fixture clock is fixed at NOW, but the column defaults to the real
+    // `now()`, and AD-3 takes the later of it and UTC midnight. The epoch
+    // makes the window UTC midnight, so the spend query is not a function of
+    // what time of day the suite runs.
+    budgetWindowStart: options.budgetWindowStart ?? new Date(0),
   })
   if (options.withWallet !== false) {
     await db.insert(wallets).values({

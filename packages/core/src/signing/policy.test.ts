@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toBaseUnits } from '@agent-desk/schemas'
+import { toBaseUnits, type AgentType } from '@agent-desk/schemas'
 import {
   bnbToWei,
   checkCreatorStakeMinimum,
@@ -7,6 +7,7 @@ import {
   checkGasFloor,
   checkStakeReservation,
   checkVerificationCap,
+  reservesStake,
   weiToBnb,
 } from './policy.ts'
 
@@ -56,29 +57,79 @@ describe('checkDailyFeeBudget (FR-3)', () => {
 
 describe('checkStakeReservation (FR-25)', () => {
   const usage = { stake: tusd('0.30'), reserved: tusd('0.25'), callCounted: false }
+  const run = (nodeType: AgentType) => ({ kind: 'run' as const, nodeType })
 
   it('reserves Stake for research and risk only', () => {
-    expect(checkStakeReservation('research', usage, tusd('0.10'))?.code).toBe('refused_stake')
-    expect(checkStakeReservation('risk', usage, tusd('0.10'))?.code).toBe('refused_stake')
+    expect(checkStakeReservation(run('research'), usage, tusd('0.10'))?.code).toBe('refused_stake')
+    expect(checkStakeReservation(run('risk'), usage, tusd('0.10'))?.code).toBe('refused_stake')
     for (const type of ['data', 'execution', 'notify'] as const) {
-      expect(checkStakeReservation(type, usage, tusd('0.10'))).toBeNull()
+      expect(checkStakeReservation(run(type), usage, tusd('0.10'))).toBeNull()
     }
   })
 
   it('passes when the free Stake covers the Call', () => {
-    expect(checkStakeReservation('research', usage, tusd('0.05'))).toBeNull()
+    expect(checkStakeReservation(run('research'), usage, tusd('0.05'))).toBeNull()
   })
 
   it('names the shortfall', () => {
-    const refusal = checkStakeReservation('risk', usage, tusd('0.10'))
+    const refusal = checkStakeReservation(run('risk'), usage, tusd('0.10'))
     expect(refusal?.check).toBe('stake_reservation')
     expect(refusal?.details.shortfall).toBe(tusd('0.05').toString())
     expect(refusal?.message).toContain('stake exhausted')
   })
 
   it('is a boundary at exactly the free Stake', () => {
-    expect(checkStakeReservation('research', usage, tusd('0.05'))).toBeNull()
-    expect(checkStakeReservation('research', usage, tusd('0.050001'))).not.toBeNull()
+    expect(checkStakeReservation(run('research'), usage, tusd('0.05'))).toBeNull()
+    expect(checkStakeReservation(run('research'), usage, tusd('0.050001'))).not.toBeNull()
+  })
+
+  // The four cases the Story 4.5 acceptance criteria name, in their own words.
+
+  it('admits the third 0.03 Call against 0.3 Stake with two unscored Calls reserved', () => {
+    const covered = { stake: tusd('0.30'), reserved: tusd('0.06'), callCounted: false }
+    expect(checkStakeReservation(run('research'), covered, tusd('0.03'))).toBeNull()
+  })
+
+  it('refuses the third 0.03 Call against 0.06 Stake with two unscored Calls reserved', () => {
+    const exhausted = { stake: tusd('0.06'), reserved: tusd('0.06'), callCounted: false }
+    const refusal = checkStakeReservation(run('research'), exhausted, tusd('0.03'))
+    expect(refusal?.code).toBe('refused_stake')
+    expect(refusal?.check).toBe('stake_reservation')
+    expect(refusal?.details.shortfall).toBe(tusd('0.03').toString())
+  })
+
+  it('lets a scored Call release its reservation', () => {
+    const stake = tusd('0.06')
+    // Two unscored Calls hold the whole Stake; the third has nothing to sit on.
+    expect(
+      checkStakeReservation(run('risk'), { stake, reserved: tusd('0.06'), callCounted: false }, tusd('0.03')),
+    ).not.toBeNull()
+    // Settlement writes a row for one of them; AD-3 stops counting it and the
+    // third Call fits. The reservation is a query, so nothing decrements.
+    expect(
+      checkStakeReservation(run('risk'), { stake, reserved: tusd('0.03'), callCounted: false }, tusd('0.03')),
+    ).toBeNull()
+  })
+
+  it('reserves nothing for a verification Call', () => {
+    // AD-3 and AD-9 are qualified to `kind = 'run'`. A verification Call is
+    // never scored, and the Listing it verifies has no Stake in the cache yet,
+    // so checking it would refuse every Agent its own going-live Call.
+    const nothing = { stake: 0n, reserved: 0n, callCounted: false }
+    for (const nodeType of ['research', 'risk', 'data', 'execution', 'notify'] as const) {
+      expect(reservesStake({ kind: 'verification', nodeType })).toBe(false)
+      expect(checkStakeReservation({ kind: 'verification', nodeType }, nothing, tusd('0.03'))).toBeNull()
+    }
+    // The same Type on a `run` Call does reserve, so the guard is the kind.
+    expect(reservesStake(run('research'))).toBe(true)
+    expect(checkStakeReservation(run('research'), nothing, tusd('0.03'))?.code).toBe('refused_stake')
+  })
+
+  it('does not count the Call twice when the AD-3 query already includes it', () => {
+    // Only reachable on a Call already `paid_awaiting_result`; the reservation
+    // query counts it, so adding the amount again would refuse a paid Call.
+    const counted = { stake: tusd('0.06'), reserved: tusd('0.06'), callCounted: true }
+    expect(checkStakeReservation(run('research'), counted, tusd('0.03'))).toBeNull()
   })
 })
 

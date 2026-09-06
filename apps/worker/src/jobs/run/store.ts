@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, ne, sql } from 'drizzle-orm'
 import {
   accounts,
   calls,
@@ -11,7 +11,15 @@ import {
 import { assertCallStatus, type CallState } from '@agent-desk/core/run'
 import type { StoredPaymentPayload } from '@agent-desk/core/ports'
 import type { AgentType, RunStatus, SkipReason } from '@agent-desk/schemas'
-import type { CallPatch, RunCallRecord, RunRecord, RunStore } from './ports.ts'
+import type { CallPatch, RunCallRecord, RunRecord, RunStore, SweepableRun } from './ports.ts'
+
+/**
+ * How many stuck Runs one sweep tick claims. The MVP runs a single worker
+ * against a handful of demo Workflows, so this is a guard against a pathological
+ * backlog holding the loop open, not a throughput knob: whatever this tick
+ * leaves behind, the next one — two seconds later in demo mode — picks up.
+ */
+const SWEEP_BATCH = 50
 
 /**
  * The Postgres side of the run engine.
@@ -184,6 +192,24 @@ export function createRunStore(db: Database): RunStore {
     },
 
     /**
+     * Story 2.9: the same skip with the terminal filter held back. The sweep
+     * ends a Run the engine has abandoned, so every Node it never reached is
+     * `not_reached` — but skipping `notify` too would leave the Builder with a
+     * Run that stopped and never said so, and the `finalize` delivery this
+     * sweep publishes needs that Call still `pending` to pay it (AD-4).
+     */
+    async skipPendingChainCalls(runId: string, reason: SkipReason, at: Date): Promise<number> {
+      const updated = await db
+        .update(calls)
+        .set({ status: 'skipped', skipReason: reason, endedAt: at })
+        .where(
+          and(eq(calls.runId, runId), eq(calls.status, 'pending'), ne(calls.nodeType, 'notify')),
+        )
+        .returning({ id: calls.id })
+      return updated.length
+    },
+
+    /**
      * FR-24: one Node the chain no longer needs. Guarded on `pending` for the
      * same reason `endRun` is guarded on `running` — a Call that has already
      * been paid for must never be rewritten as skipped.
@@ -204,6 +230,33 @@ export function createRunStore(db: Database): RunStore {
       const payload = row?.paymentPayload
       if (!payload || typeof payload !== 'object') return null
       return payload as StoredPaymentPayload
+    },
+
+    /**
+     * Story 2.9: the sweep's candidates.
+     *
+     * `coalesce(started_at, created_at)` is the sweep clock of
+     * `core/run/machine.ts`, written out in SQL so Postgres narrows on the
+     * `(status, started_at)` index rather than handing the loop every `running`
+     * Run. A Run whose worker died before it wrote `started_at` is exactly the
+     * one that would otherwise never move, so it must be in this result.
+     */
+    async runsToSweep(before: Date, limit = SWEEP_BATCH): Promise<readonly SweepableRun[]> {
+      const clock = sql<Date>`coalesce(${runs.startedAt}, ${runs.createdAt})`
+      const rows = await db
+        .select({
+          runId: runs.id,
+          workflowId: runs.workflowId,
+          startedAt: runs.startedAt,
+          createdAt: runs.createdAt,
+        })
+        .from(runs)
+        .where(
+          and(eq(runs.status, 'running'), sql`${clock} <= ${before.toISOString()}::timestamptz`),
+        )
+        .orderBy(asc(clock))
+        .limit(limit)
+      return rows
     },
   }
 }

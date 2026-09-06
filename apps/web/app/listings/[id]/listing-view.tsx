@@ -25,6 +25,7 @@ import { Separator } from "../../../components/ui/separator.tsx"
 import { errorMessage } from "../../../lib/api.ts"
 import { formatRelativeTime, formatUsdt, TOKEN_LABEL } from "../../../lib/format.ts"
 import { LISTING_POLL_MS, listingQueryOptions, resubmitHref } from "../listing-query.ts"
+import { manageHref } from "../manage-query.ts"
 
 /**
  * FR-12 / AD-12: the Creator watching their Agent go on chain.
@@ -288,11 +289,21 @@ function Outcome({ listing }: { listing: ListingDetailResponse }) {
     <section className="flex flex-col gap-4">
       <Separator />
       <p className="text-base">
-        Your Agent is on the Registry. Any Builder can put it in a Workflow, and every Call to it
-        pays your payout wallet directly.
+        {listing.status === "paused"
+          ? "Your Agent is on the Registry but paused, so no new Run can select it. A Run already running finishes at its locked price."
+          : "Your Agent is on the Registry. Any Builder can put it in a Workflow, and every Call to it pays your payout wallet directly."}
       </p>
       <div className="flex flex-wrap gap-3">
-        <Link href={`/marketplace?type=${listing.type}`} className={buttonVariants({ size: "lg" })}>
+        {/* Story 3.6: the price, the Stake and the pause switch live one click away. */}
+        {listing.is_creator ? (
+          <Link href={manageHref(listing.id)} className={buttonVariants({ size: "lg" })}>
+            Manage this Listing
+          </Link>
+        ) : null}
+        <Link
+          href={`/marketplace?type=${listing.type}`}
+          className={buttonVariants({ variant: "outline", size: "lg" })}
+        >
           See the marketplace card
         </Link>
         <a

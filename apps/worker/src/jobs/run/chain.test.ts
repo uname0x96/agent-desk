@@ -5,6 +5,7 @@ import {
   BALANCE,
   CHAIN_OUTPUTS,
   DATA_OUTPUT,
+  FakePublisher,
   START,
   chainHarness,
   chainTxHash,
@@ -517,5 +518,96 @@ describe('a finalize delivery', () => {
     expect(before).toBe(1)
     expect(outcome).toEqual({ outcome: 'finalized', runId: 'run_1', status: 'completed' })
     expect(h.agent.paidCallsTo(endpointFor('notify'))).toHaveLength(1)
+  })
+})
+
+
+// -------------------------------------------------------- the settlement tick
+
+/**
+ * Story 2.9 / AD-9: a `research` or `risk` Call that ends `failed_after_payment`
+ * is scored immediately rather than after the Settlement Window, so the engine
+ * sends a targeted `settlement.tick` for it — and for no other Type, because
+ * AD-9 scores no other Type.
+ *
+ * Every one of these Runs also ends `failed at <Type>` with `notify` still paid,
+ * which is the other half of what this story is for.
+ */
+describe('the settlement tick for a Call that failed after payment', () => {
+  /** A paid, settled 200 whose body is not the Type's, so validation fails. */
+  const INVALID = {
+    research: paidOk({ signal: 'MAYBE', confidence: 0.7, reason: 'no such signal' }),
+    risk: paidOk({ decision: 'MAYBE', size_usdt: '6', reason: 'no such decision' }),
+    data: paidOk({ symbol: 'BNBUSDT' }),
+  }
+
+  it('publishes one tick for a research Call and stops the Run at research', async () => {
+    const h = chainHarness({ responses: { research: INVALID.research } })
+
+    const outcome = await h.engine.execute(JOB)
+
+    expect(outcome).toMatchObject({ status: 'failed at research' })
+    expect(callOf(h, 'research').status).toBe('failed_after_payment')
+    expect(h.publisher.ticks).toEqual(['call_research'])
+    // FR-29: the Nodes after the failure are never requested, and never paid.
+    expect(statuses(h)).toMatchObject({ risk: 'skipped', execution: 'skipped' })
+    expect(callOf(h, 'risk').skipReason).toBe('not_reached')
+    expect(callOf(h, 'notify').status).toBe('succeeded')
+  })
+
+  it('publishes one tick for a risk Call', async () => {
+    const h = chainHarness({ responses: { risk: INVALID.risk } })
+
+    expect(await h.engine.execute(JOB)).toMatchObject({ status: 'failed at risk' })
+    expect(h.publisher.ticks).toEqual(['call_risk'])
+  })
+
+  it('publishes nothing for a data Call, which AD-9 never scores', async () => {
+    const h = chainHarness({ responses: { data: INVALID.data } })
+
+    expect(await h.engine.execute(JOB)).toMatchObject({ status: 'failed at data' })
+    expect(callOf(h, 'data').status).toBe('failed_after_payment')
+    expect(h.publisher.ticks).toEqual([])
+  })
+
+  it('publishes nothing for a research Call that succeeded', async () => {
+    const h = chainHarness()
+
+    expect(await h.engine.execute(JOB)).toMatchObject({ status: 'completed' })
+    expect(h.publisher.ticks).toEqual([])
+  })
+
+  it('publishes a tick for a payment AD-6 resolved from the chain as landed', async () => {
+    const h = chainHarness({
+      responses: { research: { kind: 'timeout' } },
+      authorizationUsed: true,
+    })
+
+    expect(await h.engine.execute(JOB)).toMatchObject({ status: 'failed at research' })
+    expect(callOf(h, 'research').status).toBe('failed_after_payment')
+    expect(h.publisher.ticks).toEqual(['call_research'])
+  })
+
+  it('publishes nothing when the chain says the authorization was never used', async () => {
+    const h = chainHarness({
+      responses: { research: { kind: 'timeout' } },
+      authorizationUsed: false,
+    })
+
+    expect(await h.engine.execute(JOB)).toMatchObject({ status: 'failed at research' })
+    expect(callOf(h, 'research').status).toBe('payment_failed')
+    expect(h.publisher.ticks).toEqual([])
+  })
+
+  it('records the Call and finishes the Run even when the queue is down', async () => {
+    const publisher = new FakePublisher()
+    publisher.failWith = new Error('pg-boss is not started')
+    const h = chainHarness({ responses: { research: INVALID.research }, publisher })
+
+    // AD-9 makes the settlement loop re-derive the same Call from `calls`, so a
+    // failed send costs latency and must never lose a recorded outcome.
+    expect(await h.engine.execute(JOB)).toMatchObject({ status: 'failed at research' })
+    expect(callOf(h, 'research').status).toBe('failed_after_payment')
+    expect(callOf(h, 'notify').status).toBe('succeeded')
   })
 })

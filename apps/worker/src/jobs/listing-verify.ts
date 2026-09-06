@@ -3,9 +3,15 @@ import type { Database } from '@agent-desk/db'
 import type { Engine } from '@agent-desk/scripts/wiring'
 import type { Logger as PinoLogger } from 'pino'
 import type { Logger } from '@agent-desk/core/ports'
-import { QUEUES, listingVerifyJob, type ListingVerifyJob } from '@agent-desk/schemas'
+import {
+  QUEUES,
+  listingVerifyJob,
+  listingWriteJob,
+  type ListingVerifyJob,
+  type ListingWriteJob,
+} from '@agent-desk/schemas'
 import { env } from '../env.ts'
-import { buildListingVerify } from './listing/wiring.ts'
+import { buildListingVerify, buildListingWrite } from './listing/wiring.ts'
 
 export interface JobDeps {
   db: Database
@@ -32,9 +38,12 @@ export interface JobDeps {
  * body is idempotent anyway, because a redelivery after a crash is the case AD-8
  * exists for.
  *
- * `listing.write` (`price:`, `stake:`, `pause:`) belongs to Story 3.6 and is
- * registered here when it lands; its intent keys are allocated by the web
- * handler and carried in the job payload, never computed by the job (AD-8).
+ * `listing.write` (`price:`, `stake:`, `pause:`) is the Creator's three changes
+ * to a Listing that is already on the Registry (Story 3.6). Its intent keys are
+ * allocated by the web handler and carried in the job payload, never computed
+ * by the job (AD-8), and its queue is `exclusive` on the intent key, so one
+ * transaction is queued or active per key and a redelivery finds the
+ * `chain_tx` row rather than sending a second time.
  */
 export async function registerListingJobs(deps: JobDeps): Promise<void> {
   const runListingVerify = buildListingVerify({
@@ -61,7 +70,30 @@ export async function registerListingJobs(deps: JobDeps): Promise<void> {
     }
   })
 
-  deps.logger.info({ queue: QUEUES.listingVerify }, 'listing jobs registered')
+  const runListingWrite = buildListingWrite({
+    db: deps.db,
+    engine: deps.engine,
+    chainId: env.CHAIN_ID,
+    rpcUrls: env.RPC_URLS,
+    logger: adaptLogger(deps.logger),
+  })
+
+  await deps.boss.work<ListingWriteJob>(QUEUES.listingWrite, async (jobs) => {
+    for (const job of jobs) {
+      const result = await runListingWrite(listingWriteJob.parse(job.data))
+      // Same rule as above: a refusal is already on the row as `last_error` and
+      // re-running would write the same sentence again, so only an unfinished
+      // receipt asks to be redelivered.
+      if (!result.ok && result.retryable) {
+        throw new Error(`listing.write is incomplete for ${result.intentKey}: ${result.reason}`)
+      }
+    }
+  })
+
+  deps.logger.info(
+    { queues: [QUEUES.listingVerify, QUEUES.listingWrite] },
+    'listing jobs registered',
+  )
 }
 
 /**

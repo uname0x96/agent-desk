@@ -15,6 +15,8 @@ import { createListingPipelineStore } from './store.ts'
 import { createListingReceiptSource } from './receipts.ts'
 import { createVerificationCall } from './verification.ts'
 import { createVerificationCallStore } from './verification-store.ts'
+import { createListingWriteJob } from './write.ts'
+import { createListingWriteStore } from './write-store.ts'
 
 /**
  * Everything `listing.verify` needs, assembled from the `Engine` and a database.
@@ -88,6 +90,35 @@ function buildVerificationCall(
     x402: buildX402Config({ facilitatorUrl: config.facilitatorUrl, chainId: config.chainId }),
     sameAddress: safeAddressEquals,
     ...(config.platformChatId ? { platformChatId: config.platformChatId } : {}),
+    ...(config.logger ? { logger: config.logger } : {}),
+  })
+}
+
+/**
+ * Everything `listing.write` needs (Story 3.6, FR-7, FR-9).
+ *
+ * The same three arguments `listing.verify` takes and no more: the write job
+ * signs with the Creator wallet through the engine's own `ChainWriter`, reads
+ * the Creator's tUSD through a read-only client over `RPC_URLS`, and touches
+ * `status` and `last_error` through a store that cannot reach a chain-owned
+ * column.
+ */
+export interface ListingWriteWiring {
+  db: Database
+  engine: Engine
+  chainId: number
+  rpcUrls: readonly string[]
+  logger?: Logger
+}
+
+export function buildListingWrite(config: ListingWriteWiring) {
+  const publicClient = createPublicChainClient({ chainId: config.chainId, rpcUrls: config.rpcUrls })
+
+  return createListingWriteJob({
+    listings: createListingWriteStore(config.db),
+    chain: config.engine.chain,
+    calls: createContractCalls(config.engine.addresses),
+    reader: createChainReader({ publicClient, addresses: config.engine.addresses }),
     ...(config.logger ? { logger: config.logger } : {}),
   })
 }

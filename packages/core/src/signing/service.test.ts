@@ -3,6 +3,7 @@ import { toBaseUnits } from '@agent-desk/schemas'
 import { createSigningService, type PaymentSigningRequest } from './service.ts'
 import { bnbToWei } from './policy.ts'
 import {
+  StakeLedger,
   StubChainReader,
   StubPaymentSigner,
   StubSigner,
@@ -186,6 +187,218 @@ describe('signPayment', () => {
       paymentRequest({ call: { callId: 'call_v2', kind: 'verification', accountId: null, listingId: 'lst_1', nodeType: 'research' } }),
     )
     expect(allowed.ok).toBe(true)
+  })
+})
+
+/**
+ * FR-25 across Runs, which is the case the per-wallet lock cannot reach.
+ *
+ * The reservation is a query over the Listing's own unscored Calls, so it is
+ * shared by every Builder paying that Listing. Two Runs started a millisecond
+ * apart belong to two wallets and two mutexes; without a lock keyed by Listing
+ * they both read a reservation the other is about to take and a Listing staked
+ * for one Call is paid for two.
+ *
+ * Every case here drives the real `createSigningService` against `StakeLedger`,
+ * which answers `stakeUsage` from modelled `calls` rows and gains a reservation
+ * the moment `recordPaymentAuthorization` writes the payload — the same order
+ * the AD-5 transaction has in Postgres.
+ */
+describe('signPayment: the FR-25 reservation across two Runs', () => {
+  const LISTING = 'lst_research'
+  const OTHER_LISTING = 'lst_risk'
+
+  function build2Wallets(stake: Record<string, string>) {
+    const store = new StubSigningStore()
+    store.seedWallet(stubWallet({ id: 'wal_A', accountId: 'acc_A', address: '0x00000000000000000000000000000000000000a1' }))
+    store.seedWallet(stubWallet({ id: 'wal_B', accountId: 'acc_B', address: '0x00000000000000000000000000000000000000b1' }))
+    const ledger = new StakeLedger()
+    for (const [listingId, amount] of Object.entries(stake)) {
+      ledger.setStake(listingId, toBaseUnits(amount))
+    }
+    store.stakeLedger = ledger
+    const payments = new StubPaymentSigner()
+    const service = createSigningService({
+      signer: new StubSigner(),
+      payments,
+      store,
+      chain: new StubChainReader(),
+      clock: fixedClock(NOW),
+      gasFloorWei: bnbToWei('0.02'),
+    })
+    return { service, store, ledger, payments }
+  }
+
+  /** A 0.03 tUSD `research` Call of an account's Run, seeded `pending`. */
+  function seedResearchCall(
+    ledger: StakeLedger,
+    callId: string,
+    listingId = LISTING,
+  ): PaymentSigningRequest {
+    ledger.seed({
+      callId,
+      listingId,
+      kind: 'run',
+      nodeType: 'research',
+      lockedPrice: toBaseUnits('0.03'),
+    })
+    return paymentRequest({
+      amount: tusd('0.03'),
+      call: { callId, kind: 'run', accountId: 'acc_A', listingId, nodeType: 'research' },
+    })
+  }
+
+  /**
+   * Counts how many payments are inside the reservation's critical section at
+   * once. The hook runs after `stakeUsage` has read the reservation and before
+   * the payment is recorded, which is the window a second reader would use.
+   */
+  function watchOverlap(ledger: StakeLedger) {
+    const seen = { peak: 0 }
+    let inside = 0
+    ledger.onRead = async () => {
+      inside += 1
+      seen.peak = Math.max(seen.peak, inside)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inside -= 1
+    }
+    return seen
+  }
+
+  it('admits only one of two concurrent Runs when the Stake covers one Call', async () => {
+    const { service, store, ledger, payments } = build2Wallets({ [LISTING]: '0.03' })
+    const first = seedResearchCall(ledger, 'call_a')
+    const second = seedResearchCall(ledger, 'call_b')
+    const overlap = watchOverlap(ledger)
+
+    const [a, b] = await Promise.all([
+      service.signPayment('wal_A', first),
+      service.signPayment('wal_B', second),
+    ])
+
+    // The Listing is staked for one Call, so exactly one Run may be paid.
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1)
+    // And the reason it is exactly one: the two reads never ran together, so the
+    // second saw the reservation the first had just taken.
+    expect(overlap.peak).toBe(1)
+
+    const refused = a.ok ? b : a
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.refusal.code).toBe('refused_stake')
+    expect(refused.refusal.check).toBe('stake_reservation')
+
+    // And the refusal left no payment behind: one signature, one row, and the
+    // refused Call still carries nothing a retry could resend.
+    expect(payments.signatures).toBe(1)
+    expect(store.recorded).toHaveLength(1)
+    const refusedCallId = a.ok ? 'call_b' : 'call_a'
+    expect(await store.readPaymentPayload(refusedCallId)).toBeNull()
+    expect(ledger.rows.get(refusedCallId)?.status).toBe('pending')
+    expect(ledger.reservedFor(LISTING)).toBe(toBaseUnits('0.03'))
+  })
+
+  it('admits both concurrent Runs when the Stake covers both Calls', async () => {
+    const { service, store, ledger, payments } = build2Wallets({ [LISTING]: '0.06' })
+    const first = seedResearchCall(ledger, 'call_a')
+    const second = seedResearchCall(ledger, 'call_b')
+    const overlap = watchOverlap(ledger)
+
+    const [a, b] = await Promise.all([
+      service.signPayment('wal_A', first),
+      service.signPayment('wal_B', second),
+    ])
+
+    expect(overlap.peak).toBe(1)
+    expect(a.ok && b.ok).toBe(true)
+    expect(payments.signatures).toBe(2)
+    expect(store.recorded).toHaveLength(2)
+    expect(ledger.reservedFor(LISTING)).toBe(toBaseUnits('0.06'))
+  })
+
+  it('admits a third Call against 0.3 Stake and refuses it against 0.06', async () => {
+    // The acceptance criteria's two arithmetic cases, driven through the service
+    // so the reservation comes from rows rather than from a hand-written pair.
+    for (const [stake, admitted] of [['0.30', true], ['0.06', false]] as const) {
+      const { service, ledger, payments } = build2Wallets({ [LISTING]: stake })
+      const first = seedResearchCall(ledger, 'call_a')
+      const second = seedResearchCall(ledger, 'call_b')
+      const third = seedResearchCall(ledger, 'call_c')
+
+      expect((await service.signPayment('wal_A', first)).ok).toBe(true)
+      expect((await service.signPayment('wal_A', second)).ok).toBe(true)
+      expect(ledger.reservedFor(LISTING)).toBe(toBaseUnits('0.06'))
+
+      const result = await service.signPayment('wal_B', third)
+      expect(result.ok).toBe(admitted)
+      expect(payments.signatures).toBe(admitted ? 3 : 2)
+      if (!result.ok) expect(result.refusal.code).toBe('refused_stake')
+    }
+  })
+
+  it('lets a scored Call release its reservation for the next Run', async () => {
+    const { service, ledger } = build2Wallets({ [LISTING]: '0.06' })
+    const first = seedResearchCall(ledger, 'call_a')
+    const second = seedResearchCall(ledger, 'call_b')
+    const third = seedResearchCall(ledger, 'call_c')
+
+    await service.signPayment('wal_A', first)
+    await service.signPayment('wal_A', second)
+    expect((await service.signPayment('wal_B', third)).ok).toBe(false)
+
+    // Settlement writes the row for the first Call. AD-3 stops counting it, so
+    // the Stake covers the third Call without anything being decremented.
+    ledger.settle('call_a')
+    expect(ledger.reservedFor(LISTING)).toBe(toBaseUnits('0.03'))
+    expect((await service.signPayment('wal_B', third)).ok).toBe(true)
+  })
+
+  it('locks per Listing, so two Runs on different Listings do not queue', async () => {
+    const { service, ledger } = build2Wallets({ [LISTING]: '0.03', [OTHER_LISTING]: '0.03' })
+    const here = seedResearchCall(ledger, 'call_a', LISTING)
+    const there = seedResearchCall(ledger, 'call_b', OTHER_LISTING)
+    const overlap = watchOverlap(ledger)
+
+    const [a, b] = await Promise.all([
+      service.signPayment('wal_A', here),
+      service.signPayment('wal_B', there),
+    ])
+
+    // Both Listings are staked for one Call and both Calls are paid, which can
+    // only happen if the lock is keyed by Listing rather than held globally.
+    expect(overlap.peak).toBe(2)
+    expect(a.ok && b.ok).toBe(true)
+    expect(service.stakeLockCount).toBe(2)
+  })
+
+  it('never checks or locks a data, execution, or notify Call', async () => {
+    // The Listing has no Stake at all; none of these three may notice.
+    const { service, ledger } = build2Wallets({ [LISTING]: '0' })
+    for (const nodeType of ['data', 'execution', 'notify'] as const) {
+      const result = await service.signPayment('wal_A', paymentRequest({
+        amount: tusd('0.03'),
+        call: { callId: `call_${nodeType}`, kind: 'run', accountId: 'acc_A', listingId: LISTING, nodeType },
+      }))
+      expect(result.ok).toBe(true)
+    }
+    // No reservation was even read, and no Listing lock was ever created.
+    expect(ledger.events).toEqual([])
+    expect(service.stakeLockCount).toBe(0)
+  })
+
+  it('never checks or locks a verification Call, whatever its Type', async () => {
+    // A Listing being verified has not written its Stake to the cache yet, so a
+    // reservation check here would refuse every new Agent its own first Call.
+    const { service, ledger } = build2Wallets({ [LISTING]: '0' })
+    for (const nodeType of ['research', 'risk'] as const) {
+      const result = await service.signPayment('wal_A', paymentRequest({
+        amount: tusd('0.03'),
+        call: { callId: `call_v_${nodeType}`, kind: 'verification', accountId: null, listingId: LISTING, nodeType },
+      }))
+      expect(result.ok).toBe(true)
+    }
+    expect(ledger.events).toEqual([])
+    expect(service.stakeLockCount).toBe(0)
   })
 })
 

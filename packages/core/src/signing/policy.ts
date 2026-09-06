@@ -2,6 +2,7 @@ import {
   baseUnitsToString,
   toDecimalUsdt,
   type AgentType,
+  type CallKind,
   type ErrorCode,
 } from '@agent-desk/schemas'
 import type { BudgetUsage, StakeUsage, VerificationUsage } from '../ports/index.ts'
@@ -17,6 +18,12 @@ import type { BudgetUsage, StakeUsage, VerificationUsage } from '../ports/index.
  * verification cap, Creator gas floor. `signPayment` runs the first, second and
  * fourth (whichever apply to the Call's kind); `sendTx` runs the third and
  * fifth. All of them run *before* anything is signed.
+ *
+ * Four of the five are read-and-decide against a limit only that wallet can
+ * move, so the wallet lock is the whole critical section. The FR-25 reservation
+ * is not: its limit belongs to the Listing and every Builder paying that
+ * Listing spends it, so `createSigningService` holds a second lock keyed by
+ * Listing around this one check and the write that follows it.
  */
 
 export const POLICY_CHECKS = [
@@ -48,6 +55,28 @@ export interface PolicyRefusal {
 
 /** FR-25 and AD-9 score these two Types, so only they reserve Stake. */
 export const STAKE_RESERVING_TYPES: readonly AgentType[] = ['research', 'risk']
+
+/** The two facts FR-25 needs about a Call before it can price the reservation. */
+export interface StakeReservingCall {
+  kind: CallKind
+  nodeType: AgentType
+}
+
+/**
+ * FR-25, with AD-3 and AD-9 qualified to `kind = 'run'` as the team reconciled
+ * them. Two clauses, both necessary:
+ *
+ *   - only `research` and `risk` are scored, so only they can be slashed;
+ *   - only a `run` Call is scored. A `verification` Call never gets a
+ *     Settlement, so a reservation taken for one could never be released, and
+ *     the Listing being verified has not written its Stake to the cache yet —
+ *     `listings.stake` is null until the first confirmed receipt (AD-2). A
+ *     verification Call that reserved Stake would therefore refuse every new
+ *     Listing its own going-live Call and no Agent could ever be listed.
+ */
+export function reservesStake(call: StakeReservingCall): boolean {
+  return call.kind === 'run' && STAKE_RESERVING_TYPES.includes(call.nodeType)
+}
 
 /** FR-7: a Listing's stake must be at least ten times its price per call. */
 export const STAKE_MULTIPLE = 10n
@@ -85,14 +114,22 @@ export function checkDailyFeeBudget(usage: BudgetUsage, amount: bigint): PolicyR
  * FR-25: before paying a `research` or `risk` Agent, its Stake minus the locked
  * prices of its unscored Calls must cover this Call's locked price. Applies to
  * those two Types only — a `data`, `execution`, or `notify` Call is never
- * scored, so it can never be slashed and reserves nothing.
+ * scored, so it can never be slashed and reserves nothing — and to `kind =
+ * 'run'` only, per `reservesStake` above.
+ *
+ * `usage.reserved` is the AD-3 reservation *query*, not a counter: the Settlement
+ * row is what releases a Call's share of it, so a scored Call stops reserving
+ * the moment `settlements` has its row, whatever the result. That makes the
+ * arithmetic here pure — the caller serialises the read against the write that
+ * changes it, which for two Runs on one Listing is `createSigningService`'s
+ * per-Listing lock, not the per-wallet one.
  */
 export function checkStakeReservation(
-  nodeType: AgentType,
+  call: StakeReservingCall,
   usage: StakeUsage,
   amount: bigint,
 ): PolicyRefusal | null {
-  if (!STAKE_RESERVING_TYPES.includes(nodeType)) return null
+  if (!reservesStake(call)) return null
   const reserved = usage.callCounted ? usage.reserved : usage.reserved + amount
   if (reserved <= usage.stake) return null
   const shortfall = reserved - usage.stake

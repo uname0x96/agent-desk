@@ -17,10 +17,12 @@ export {
   checkGasFloor,
   checkStakeReservation,
   checkVerificationCap,
+  reservesStake,
   weiToBnb,
   type PolicyCheck,
   type PolicyRefusal,
   type RefusalCode,
+  type StakeReservingCall,
 } from './policy.ts'
 export {
   createSigningService,

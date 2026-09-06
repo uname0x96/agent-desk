@@ -36,6 +36,7 @@ import type {
 } from '@agent-desk/core/listing'
 import type { AgentType, ListingStatus } from '@agent-desk/schemas'
 import type { Engine } from '@agent-desk/scripts/wiring'
+import type { ListingWriteRow, ListingWriteStore } from './write-ports.ts'
 
 /**
  * The worker's listing wiring, with the chain replaced and nothing else.
@@ -163,6 +164,42 @@ export class FakeListingTable {
       },
       writeLastError: async (listingId, lastError) => {
         this.rows.set(listingId, { ...this.get(listingId), lastError })
+      },
+    }
+  }
+
+  /**
+   * Story 3.6's half: the same two pipeline columns, reached through the
+   * `listing.write` port. `read` hands over the chain-owned columns as well,
+   * because the ten-times minimum is checked against them — and never lets them
+   * be written, which is the AD-2 line this port draws.
+   */
+  writeStore(): ListingWriteStore {
+    return {
+      read: async (listingId): Promise<ListingWriteRow | null> => {
+        const row = this.rows.get(listingId)
+        if (!row) return null
+        return {
+          id: row.id,
+          creatorAccountId: row.creatorAccountId,
+          status: row.status,
+          registryListingId: row.registryListingId,
+          price: row.price,
+          stake: row.stake,
+          pausedByCreator: row.pausedByCreator,
+          pausedByStake: row.pausedByStake,
+        }
+      },
+      creatorWallet: async () => this.wallet,
+      patch: async (listingId, patch) => {
+        const row = this.get(listingId)
+        const next: FakeListingRow = {
+          ...row,
+          ...(patch.status === undefined ? {} : { status: patch.status }),
+          ...(patch.lastError === undefined ? {} : { lastError: patch.lastError }),
+        }
+        this.rows.set(listingId, next)
+        this.statusWrites.push({ listingId, status: next.status, lastError: next.lastError })
       },
     }
   }

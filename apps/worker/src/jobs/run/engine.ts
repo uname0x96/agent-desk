@@ -10,6 +10,7 @@ import {
   comparePriceLock,
   describeMismatch,
   isPastDeadline,
+  isScoredNodeType,
   lockTermsFor,
   nextStep,
   skipReasonFor,
@@ -31,12 +32,14 @@ import {
   type RunStatus,
   type SkipReason,
 } from '@agent-desk/schemas'
+import { noopRunPublisher } from './publisher.ts'
 import type {
   AgentClient,
   CallPatch,
   ExchangeBalance,
   PaidResult,
   RunCallRecord,
+  RunPublisher,
   RunRecord,
   RunStore,
   SettlementReceipt,
@@ -81,6 +84,13 @@ export interface RunEngineDeps {
   agent: AgentClient
   /** AD-11: `GET /internal/balance` on the execution Agent, read before `risk`. */
   exchangeBalance: ExchangeBalance
+  /**
+   * AD-9 / Story 2.9: where a `settlement.tick` goes when a scored Call fails
+   * after payment. Optional because nothing the engine writes depends on the
+   * send landing — the settlement loop re-derives the same work from `calls`
+   * left of a `settlements` row — so a caller with no queue drops it.
+   */
+  publisher?: Pick<RunPublisher, 'settlementTick'>
   clock?: Clock
   logger?: Logger
   /**
@@ -146,6 +156,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
   const clock = deps.clock ?? systemClock
   const logger = deps.logger ?? silentLogger
   const sameAddress = deps.sameAddress ?? caseInsensitiveAddressEquals
+  const publisher = deps.publisher ?? noopRunPublisher(logger)
   const deadlineMs = deps.deadlineMs ?? RUN_DEADLINE_MS
   const referenceTimeoutMs = deps.referenceTimeoutMs ?? REFERENCE_PRICE_TIMEOUT_MS
 
@@ -155,6 +166,28 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
   async function writeCall(call: RunCallRecord, status: CallStatus, patch: CallPatch): Promise<void> {
     assertCallTransition(call.status, status)
     await deps.store.updateCall(call.callId, { ...patch, status })
+  }
+
+  /**
+   * Story 2.9 / AD-9: a `research` or `risk` Call that ended `failed_after_payment`
+   * is scored immediately, with no window — the Builder paid for an answer that
+   * was never usable, and Epic 4 does not have to wait 60 minutes to say so.
+   *
+   * The send is best-effort by design and by AD-9: the settlement loop selects
+   * the same Calls from `calls` left of a `settlements` row on every tick, so a
+   * dropped tick costs latency, never a missing Settlement. A failing publish
+   * must therefore never turn a recorded Call outcome into a failed job.
+   */
+  async function publishSettlementTick(call: RunCallRecord): Promise<void> {
+    if (!isScoredNodeType(call.nodeType)) return
+    try {
+      await publisher.settlementTick(call.callId)
+    } catch (error) {
+      logger.warn(
+        { call_id: call.callId, node_type: call.nodeType, error: (error as Error).message },
+        'settlement tick publish failed; the settlement loop will recover this Call',
+      )
+    }
   }
 
   /** A refusal before anything is signed: the Call is `payment_failed`, unpaid. */
@@ -459,6 +492,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
         failureReason: reason,
         endedAt: clock.now(),
       })
+      await publishSettlementTick(call)
       return { kind: 'failed', reason }
     }
 
@@ -518,6 +552,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
         failureReason: reason,
         endedAt: clock.now(),
       })
+      await publishSettlementTick(call)
       return { status: 'failed_after_payment', reason }
     }
 

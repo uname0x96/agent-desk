@@ -19,6 +19,7 @@ import {
   checkGasFloor,
   checkStakeReservation,
   checkVerificationCap,
+  reservesStake,
   type PolicyRefusal,
 } from './policy.ts'
 
@@ -40,6 +41,11 @@ import {
  * row says "this Call has been paid for" from the moment the header exists, so
  * a redelivered `run.execute` resends the stored header (AD-4) instead of
  * signing a second authorization for the same Call (FR-25).
+ *
+ * Steps 2 to 4 additionally run inside a *second* lock, keyed by Listing rather
+ * than by wallet, whenever the Call reserves Stake. The wallet lock protects one
+ * payer's nonces; the FR-25 reservation is shared by every payer of one Listing,
+ * so it needs a lock of its own. See `listingLocks` below.
  */
 
 export type SigningOutcome<T> = ({ ok: true } & T) | { ok: false; refusal: PolicyRefusal }
@@ -104,12 +110,44 @@ export interface SigningService {
   generateKey(): Promise<{ address: Address; encryptedKey: string }>
   /** Diagnostics: how many wallets this process has ever locked. */
   readonly lockCount: number
+  /** Diagnostics: how many Listings this process has ever held the FR-25 lock for. */
+  readonly stakeLockCount: number
 }
 
 export function createSigningService(deps: SigningServiceDeps): SigningService {
   const clock = deps.clock ?? systemClock
   const logger = deps.logger ?? silentLogger
   const locks = new KeyedMutex()
+
+  /**
+   * FR-25's second lock, and the reason it has to exist.
+   *
+   * The Stake reservation is a *query* over the Listing's own unscored Calls
+   * (AD-3), so it is a read that a later write invalidates. Two Runs paying the
+   * same thinly-staked Listing at the same moment would each read the other's
+   * reservation as absent, both pass, and both be paid against Stake that
+   * covers one — which is exactly the coverage FR-7 and FR-25 promise. The
+   * per-wallet lock cannot close it: those two Runs belong to two Builders, so
+   * to two wallets, so to two different mutexes.
+   *
+   * This lock is keyed by Listing and held across the read of `stakeUsage` and
+   * the `recordPaymentAuthorization` write that makes the new reservation
+   * visible to the next reader, so the second Run reads the first one's
+   * `paid_awaiting_result` row and is refused. It is taken only for Calls that
+   * reserve Stake, so a `data`, `execution`, `notify`, or `verification` Call
+   * never queues behind another Listing's payment.
+   *
+   * Deadlock: it is always acquired *inside* the wallet lock, never the other
+   * way round, and a Call names exactly one Listing, so no holder ever waits on
+   * a lock another holder is waiting to release.
+   *
+   * Scope: in-process, like the wallet lock, which is the whole guarantee while
+   * AD-4 runs one worker instance. A second worker needs the same critical
+   * section in Postgres — `SELECT ... FOR UPDATE` on the `listings` row, or an
+   * advisory lock on the listing id, taken in the transaction that writes
+   * `calls.payment_payload`. Nothing else about the policy changes.
+   */
+  const listingLocks = new KeyedMutex()
 
   async function signPayment(
     walletId: string,
@@ -130,42 +168,59 @@ export function createSigningService(deps: SigningServiceDeps): SigningService {
       const wallet = await mustLoadWallet(walletId)
       const now = clock.now()
 
-      // 2. Policy, in the AD-5 order, all of it before anything is signed.
-      const refusal = await evaluatePaymentPolicy(call, amount, now)
-      if (refusal) {
-        logger.warn(
-          { call_id: call.callId, wallet_id: walletId, check: refusal.check, code: refusal.code },
-          'payment refused before signing',
+      // Steps 2 to 4 are one critical section for the Listing's Stake: the
+      // reservation is read, spent, and made visible to the next reader without
+      // another Run reading it in between. See `listingLocks`.
+      return withStakeLock(call, async () => {
+        // 2. Policy, in the AD-5 order, all of it before anything is signed.
+        const refusal = await evaluatePaymentPolicy(call, amount, now)
+        if (refusal) {
+          logger.warn(
+            { call_id: call.callId, wallet_id: walletId, check: refusal.check, code: refusal.code },
+            'payment refused before signing',
+          )
+          return { ok: false as const, refusal }
+        }
+
+        // 3. The signature. The key never leaves the Signer port.
+        const signed = await deps.payments.signPaymentAuthorization({
+          wallet: { address: wallet.address, encryptedKey: wallet.encryptedKey },
+          requirements,
+        })
+
+        const payload: StoredPaymentPayload = {
+          header: signed.header,
+          nonce: signed.authorization.nonce,
+          validAfter: signed.authorization.validAfter,
+          validBefore: signed.authorization.validBefore,
+          from: signed.authorization.from.toLowerCase(),
+          to: signed.authorization.to.toLowerCase(),
+          value: signed.authorization.value,
+          signature: signed.signature,
+        }
+
+        // 4. One transaction: the payload and `paid_awaiting_result` together.
+        // This is also the write that adds the Call to the AD-3 reservation
+        // query, so it must land before the lock is released.
+        await deps.store.recordPaymentAuthorization({ callId: call.callId, payload, startedAt: now })
+
+        logger.info(
+          { call_id: call.callId, wallet_id: walletId, listing_id: call.listingId, amount: requirements.amount },
+          'payment authorization signed and recorded',
         )
-        return { ok: false as const, refusal }
-      }
-
-      // 3. The signature. The key never leaves the Signer port.
-      const signed = await deps.payments.signPaymentAuthorization({
-        wallet: { address: wallet.address, encryptedKey: wallet.encryptedKey },
-        requirements,
+        return { ok: true as const, header: payload.header, payload, reused: false }
       })
-
-      const payload: StoredPaymentPayload = {
-        header: signed.header,
-        nonce: signed.authorization.nonce,
-        validAfter: signed.authorization.validAfter,
-        validBefore: signed.authorization.validBefore,
-        from: signed.authorization.from.toLowerCase(),
-        to: signed.authorization.to.toLowerCase(),
-        value: signed.authorization.value,
-        signature: signed.signature,
-      }
-
-      // 4. One transaction: the payload and `paid_awaiting_result` together.
-      await deps.store.recordPaymentAuthorization({ callId: call.callId, payload, startedAt: now })
-
-      logger.info(
-        { call_id: call.callId, wallet_id: walletId, listing_id: call.listingId, amount: requirements.amount },
-        'payment authorization signed and recorded',
-      )
-      return { ok: true as const, header: payload.header, payload, reused: false }
     })
+  }
+
+  /**
+   * The FR-25 critical section, taken only when this Call reserves Stake. A
+   * Call that reserves nothing cannot invalidate another reader's reservation,
+   * so making it queue would only slow the Run down.
+   */
+  function withStakeLock<T>(call: PaymentCallContext, operation: () => Promise<T>): Promise<T> {
+    if (!reservesStake(call)) return operation()
+    return listingLocks.run(call.listingId, operation)
   }
 
   /**
@@ -193,8 +248,12 @@ export function createSigningService(deps: SigningServiceDeps): SigningService {
     )
     if (budget) return budget
 
+    // FR-25: `research` and `risk` only, and `kind = 'run'` only. The read is
+    // skipped entirely for a Call that reserves nothing, so a `data` Node never
+    // pays for a query whose answer it cannot fail.
+    if (!reservesStake(call)) return null
     return checkStakeReservation(
-      call.nodeType,
+      call,
       await deps.store.stakeUsage(call.listingId, call.callId),
       amount,
     )
@@ -244,6 +303,9 @@ export function createSigningService(deps: SigningServiceDeps): SigningService {
     generateKey: () => deps.signer.generateKey(),
     get lockCount() {
       return locks.size
+    },
+    get stakeLockCount() {
+      return listingLocks.size
     },
   }
 }

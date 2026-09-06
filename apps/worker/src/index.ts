@@ -6,6 +6,7 @@ import { env } from './env.ts'
 import { startHeartbeat } from './heartbeat.ts'
 import { registerListingJobs, type JobDeps } from './jobs/listing-verify.ts'
 import { registerRunJobs } from './jobs/run-execute.ts'
+import { registerSettlementJobs } from './jobs/settlement.ts'
 
 /**
  * AD-4: this process is the only writer of Run state. The web app inserts a Run
@@ -47,11 +48,17 @@ async function main(): Promise<void> {
   await registerWalletCreate(boss, engine)
   await registerListingJobs(deps)
   await registerRunJobs(deps)
+  // AD-9 / Stories 2.9 and 4.1-4.4: the one in-process settlement loop. Each
+  // iteration re-reads the mode, runs Story 2.9's AD-4 timeout sweep, then
+  // scores every due research and risk Call and carries its slash and
+  // reputation writes. Independent of the heartbeat, deliberately.
+  const settlement = await registerSettlementJobs({ db, boss, engine, logger, platformWalletId })
   logger.info({ chainId: env.CHAIN_ID }, 'worker ready')
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down')
     stopHeartbeat()
+    settlement.stop()
     await boss.stop({ graceful: true })
     process.exit(0)
   }

@@ -92,6 +92,11 @@ async function fixture(): Promise<Fixture> {
     email: `${accountId}@test.local`,
     passwordHash: '!',
     telegramChatId: '123456789',
+    // The fixture clock is fixed, but `budget_window_start` defaults to the
+    // real `now()`, and AD-3 takes the later of it and UTC midnight. Pin it to
+    // the epoch so the window is UTC midnight and the spend query is not a
+    // function of what time of day the suite runs.
+    budgetWindowStart: new Date(0),
   })
   await db.insert(wallets).values({
     id: walletId,

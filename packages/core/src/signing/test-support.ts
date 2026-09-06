@@ -1,3 +1,4 @@
+import { PAID_CALL_STATUSES, type AgentType, type CallKind, type CallStatus } from '@agent-desk/schemas'
 import type {
   Address,
   BudgetUsage,
@@ -289,6 +290,106 @@ export class InMemoryWalletStore implements WalletStore {
   }
 }
 
+// ---------------------------------------------------------- stake ledger
+
+/** One `calls` row, as far as the FR-25 reservation query can see it. */
+export interface StakeLedgerCall {
+  callId: string
+  listingId: string
+  kind: CallKind
+  nodeType: AgentType
+  /** Base units. */
+  lockedPrice: bigint
+  status: CallStatus
+  /** True once `settlements` has a row for this Call. That is what releases it. */
+  settled: boolean
+}
+
+/** AD-9 scores these two Types, so only they reserve Stake. Mirrors `packages/db`. */
+const SCORED_NODE_TYPES: readonly AgentType[] = ['research', 'risk']
+
+/**
+ * The AD-3 Stake reservation as rows rather than as a number, so a test can
+ * watch a reservation appear when a Call is paid and disappear when it is
+ * scored — and so two concurrent `signPayment` calls on one Listing read the
+ * same mutable state a real Postgres would give them.
+ *
+ * This is a *model* of the query, not the query: `packages/db`'s
+ * `stakeReservationForListing` is the one the worker runs. Both are the same
+ * three clauses — `kind = 'run'`, a scored Type, a paid status with no
+ * `settlements` row — and both are asserted against the same story fixtures.
+ */
+export class StakeLedger {
+  readonly rows = new Map<string, StakeLedgerCall>()
+  readonly stakes = new Map<string, bigint>()
+  /** Every reservation read and every reservation write, in order. */
+  readonly events: string[] = []
+  /**
+   * Awaited inside `stakeUsage` *after* the reservation has been read. A test
+   * sets it to force the interleaving a second Run would produce if the FR-25
+   * lock were not held: read, yield, and only then write.
+   */
+  onRead: ((callId: string) => Promise<void>) | null = null
+
+  /** `listings.stake`, the chain-owned cache (AD-2). */
+  setStake(listingId: string, stake: bigint): void {
+    this.stakes.set(listingId, stake)
+  }
+
+  /** A `calls` row as `POST /api/runs` inserts it: `pending`, unpaid, unsettled. */
+  seed(row: Omit<StakeLedgerCall, 'status' | 'settled'> & Partial<StakeLedgerCall>): void {
+    this.rows.set(row.callId, { status: 'pending', settled: false, ...row })
+  }
+
+  /**
+   * What `recordPaymentAuthorization` does to the row: it becomes a reservation.
+   * A Call the test never seeded is not modelled here and is left alone, so a
+   * ledger can carry one Listing's Calls while other payments run past it.
+   */
+  markPaid(callId: string): void {
+    const row = this.rows.get(callId)
+    if (!row) return
+    this.rows.set(callId, { ...row, status: 'paid_awaiting_result' })
+    this.events.push(`paid:${callId}`)
+  }
+
+  /** What Story 4.2 does when it writes the Settlement: the reservation is released. */
+  settle(callId: string): void {
+    const row = this.rows.get(callId)
+    if (!row) throw new Error(`no modelled call ${callId}`)
+    this.rows.set(callId, { ...row, status: 'succeeded', settled: true })
+    this.events.push(`settled:${callId}`)
+  }
+
+  /** The AD-3 rule, over the rows above. */
+  counts(row: StakeLedgerCall): boolean {
+    if (row.kind !== 'run') return false
+    if (!SCORED_NODE_TYPES.includes(row.nodeType)) return false
+    if (!PAID_CALL_STATUSES.includes(row.status)) return false
+    return !row.settled
+  }
+
+  reservedFor(listingId: string): bigint {
+    let total = 0n
+    for (const row of this.rows.values()) {
+      if (row.listingId === listingId && this.counts(row)) total += row.lockedPrice
+    }
+    return total
+  }
+
+  async usage(listingId: string, callId: string): Promise<StakeUsage> {
+    const reserved = this.reservedFor(listingId)
+    const row = this.rows.get(callId)
+    this.events.push(`read:${callId}`)
+    if (this.onRead) await this.onRead(callId)
+    return {
+      stake: this.stakes.get(listingId) ?? 0n,
+      reserved,
+      callCounted: row ? this.counts(row) : false,
+    }
+  }
+}
+
 // ------------------------------------------------------------ signing store
 
 export interface StubSigningStoreOptions {
@@ -306,6 +407,12 @@ export class StubSigningStore implements SigningStore {
   stake: StakeUsage
   verification: VerificationUsage
   settings: PlatformSettings
+  /**
+   * When set, the FR-25 reservation is answered from modelled `calls` rows
+   * instead of the flat `stake` pair, and every payment recorded here becomes a
+   * reservation the next reader sees.
+   */
+  stakeLedger: StakeLedger | null = null
   /** Runs before `recordPaymentAuthorization` returns; lets a test interleave. */
   onRecord: (() => Promise<void>) | null = null
 
@@ -336,7 +443,8 @@ export class StubSigningStore implements SigningStore {
     return this.budget
   }
 
-  async stakeUsage(): Promise<StakeUsage> {
+  async stakeUsage(listingId: string, callId: string): Promise<StakeUsage> {
+    if (this.stakeLedger) return this.stakeLedger.usage(listingId, callId)
     return this.stake
   }
 
@@ -352,6 +460,9 @@ export class StubSigningStore implements SigningStore {
     if (this.onRecord) await this.onRecord()
     this.recorded.push(input)
     this.payments.set(input.callId, input.payload)
+    // AD-5: the same transaction that stores the payload moves the Call to
+    // `paid_awaiting_result`, which is what puts it inside the AD-3 query.
+    this.stakeLedger?.markPaid(input.callId)
   }
 
   async platformSettings(): Promise<PlatformSettings> {
