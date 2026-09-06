@@ -16,3 +16,6 @@ contracts/cache/
 contracts/broadcast/
 contracts/lib/
 _bmad-output/**/.memlog.md
+
+# Local secrets, never committed
+.secrets/

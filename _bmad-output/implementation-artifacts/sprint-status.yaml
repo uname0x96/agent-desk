@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-06-2026 12:35
-last_updated: 09-06-2026 12:35
+last_updated: 09-06-2026 14:10
 project: agent-desk
 project_key: NOKEY
 tracking_system: file-system
@@ -37,10 +37,10 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-monorepo-scaffold-and-shared-contracts-package: done
-  1-2-tusd-and-agentdeskregistry-deployed-on-bsc-testnet: backlog
-  1-3-self-hosted-x402-facilitator-on-eip155-97: backlog
-  1-4-database-schema-migrations-and-compose-base: backlog
-  1-5-agent-kit-and-the-binance-ticker-agent: backlog
+  1-2-tusd-and-agentdeskregistry-deployed-on-bsc-testnet: in-progress
+  1-3-self-hosted-x402-facilitator-on-eip155-97: in-progress
+  1-4-database-schema-migrations-and-compose-base: in-progress
+  1-5-agent-kit-and-the-binance-ticker-agent: in-progress
   1-6-signer-signing-policy-chain-writes-and-wallet-creation: backlog
   1-7-seed-listing-pipeline-puts-binance-ticker-on-chain: backlog
   1-8-engine-pays-one-node-with-price-lock-and-receipt: backlog
@@ -110,18 +110,22 @@ development_status:
 # Environment blockers found on the build machine 2026-09-06; clear these before Story 1.1.
 action_items:
   - epic: 1
-    action: "git init the repo and push it to GitHub — the submission is a git link and no repository exists yet"
+    action: "git init the repo and push it to GitHub - the submission is a git link. Local repo now exists; the GitHub remote and first push are still missing"
+    owner: "unassigned"
+    status: in-progress
+  - epic: 1
+    action: "Install pnpm 11.25 and Foundry 1.8.1 on every build machine. Done on the lead machine: pnpm 11.25.0 via corepack, forge 1.8.1 at ~/.foundry/bin"
+    owner: "unassigned"
+    status: done
+  - epic: 1
+    action: "Fund the two generated testnet addresses from a tBNB faucet. Platform Wallet 0x7609275f0f166d078f59d69d69511d0612e756cb and facilitator relayer 0x762809089c54de14ec79a8b69faf0ab72781a603. The official BNB Chain faucet needs 0.002 mainnet BNB at the requesting address; faucet.zalalena.com/bsc and tokentool.bitbond.com/faucet/bsc-testnet have no balance gate but need a captcha, so a human has to do this. Nothing deploys until it is done"
     owner: "unassigned"
     status: open
   - epic: 1
-    action: "Install pnpm 11.25 (machine has 10.30.3) and Foundry 1.8.1 (not installed) on every build machine"
+    action: "Provide the secrets a machine cannot generate, into .env at the repository root: BINANCE_API_KEY and BINANCE_API_SECRET from the Binance Spot Testnet, the Spot Demo Mode key pair, TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY, BSCSCAN_API_KEY. MASTER_KEY, PLATFORM_WALLET_KEY, the relayer key, the demo Creator key, INTERNAL_TOKEN and SESSION_SECRET are already generated fresh and recorded in .secrets/dev-wallets.md"
     owner: "unassigned"
     status: open
   - epic: 1
-    action: "Provision and share in the team password manager: MASTER_KEY, PLATFORM_WALLET_KEY, the facilitator relayer key, the Binance Spot Testnet Ed25519 key pair, the Spot Demo Mode key pair, TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY"
+    action: "Run the four day-1 checks from the architecture spine's Open Questions. Foundry 1.8.1 is installed and the OZ v5.7.0 ERC3009 compile check runs inside Story 1.2; the facilitator check runs inside Story 1.3; the Cloudflare DNS decision for a stable agentURI is still open, with the data: URI path as the fallback; the faucet check is the item above"
     owner: "unassigned"
-    status: open
-  - epic: 1
-    action: "Run the four day-1 checks from the architecture spine's Open Questions before other work: ERC3009 from the OZ v5.7.0 tag compiles under Foundry with the (v, r, s) overload; the x402 facilitator example runs on eip155:97 with the Solana signer removed; the team domain is on Cloudflare DNS for a stable agentURI, else the data: URI path is taken; the faucet address holds 0.002 mainnet BNB"
-    owner: "unassigned"
-    status: open
+    status: in-progress
