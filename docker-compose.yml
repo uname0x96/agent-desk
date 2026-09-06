@@ -3,16 +3,35 @@
 
 name: agent-desk
 
-# Every agent reads AGENT_PAYTO from .env.seed, which `pnpm seed` writes with
-# the Platform Wallet address: nothing in .env can know that address until the
-# seed has imported PLATFORM_WALLET_KEY. The file is optional so a fresh clone
-# still comes up; an agent without AGENT_PAYTO exits naming the key.
+# `.env` is written from the host's point of view, because `pnpm run doctor`,
+# `pnpm seed` and `pnpm local:chain` all run on the host and only the host can
+# resolve `localhost`. Inside the network the same three services answer to
+# their compose names instead, so every app service takes these overrides.
+# `environment` wins over `env_file`, so this is the only place the two views
+# of one address are reconciled.
+#
+# RPC_URLS_CONTAINER is normally unset and RPC_URLS carries through unchanged.
+# `pnpm local:chain up` sets it, because Anvil runs on the host and a container
+# reaching `127.0.0.1` reaches itself.
+x-container-env: &container-env
+  DATABASE_URL: postgres://agentdesk:agentdesk@postgres:5432/agentdesk
+  FACILITATOR_URL: http://facilitator:4020
+  RPC_URLS: ${RPC_URLS_CONTAINER:-${RPC_URLS}}
+
+# Every agent reads AGENT_PAYTO from a file `pnpm seed` writes, because nothing
+# in .env can know that address until the seed has imported PLATFORM_WALLET_KEY.
+# The six platform agents take .env.seed.platform (the Platform Wallet, which is
+# the payout_wallet of every Seed Listing); only agent-sloppy-research-2 takes
+# .env.seed (the demo Creator). AD-6 has the engine compare the 402 `payTo` with
+# the Price Lock, so an agent reading the wrong file fails every Call with
+# `price_mismatch`. The files are optional so a fresh clone still comes up; an
+# agent without AGENT_PAYTO exits naming the key.
 x-agent-base: &agent-base
   build: { context: ., dockerfile: docker/Dockerfile.node }
   restart: unless-stopped
   env_file:
     - .env
-    - { path: .env.seed, required: false }
+    - { path: .env.seed.platform, required: false }
   # `service_healthy`, not `service_started`: the x402 resource server fetches the
   # facilitator's supported kinds once while the agent boots and never retries, so
   # an agent that wins the race against the facilitator answers 500 to every paid
@@ -48,6 +67,8 @@ services:
     build: { context: ., dockerfile: docker/Dockerfile.node }
     command: ['pnpm', '--filter', '@agent-desk/db', 'migrate']
     env_file: [.env]
+    environment:
+      <<: *container-env
     depends_on:
       postgres: { condition: service_healthy }
     restart: 'no'
@@ -57,6 +78,8 @@ services:
     restart: unless-stopped
     env_file: [.env]
     ports: ['3000:3000']
+    environment:
+      <<: *container-env
     depends_on:
       postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
@@ -71,6 +94,8 @@ services:
     command: ['pnpm', '--filter', '@agent-desk/worker', 'start']
     restart: unless-stopped
     env_file: [.env]
+    environment:
+      <<: *container-env
     depends_on:
       postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
@@ -80,7 +105,9 @@ services:
     command: ['pnpm', '--filter', '@agent-desk/facilitator', 'start']
     restart: unless-stopped
     env_file: [.env]
-    environment: { FACILITATOR_PORT: '4020' }
+    environment:
+      <<: *container-env
+      FACILITATOR_PORT: '4020'
     ports: ['4020:4020']
     # 20 x 3s covers the story's "every /health answers 200 within 60 s". Alpine
     # has no curl, and `node -e` needs nothing that is not already in the image.
@@ -93,45 +120,70 @@ services:
   agent-binance-ticker:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-binance-ticker', 'start']
-    environment: { AGENT_PORT: '4101', AGENT_PRICE: '0.01' }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4101'
+      AGENT_PRICE: '0.01'
     ports: ['4101:4101']
 
   agent-alpha-research:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-alpha-research', 'start']
-    environment: { AGENT_PORT: '4102', AGENT_PRICE: '0.05' }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4102'
+      AGENT_PRICE: '0.05'
     ports: ['4102:4102']
 
   agent-sloppy-research:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-sloppy-research', 'start']
-    environment: { AGENT_PORT: '4103', AGENT_PRICE: '0.03' }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4103'
+      AGENT_PRICE: '0.03'
     ports: ['4103:4103']
 
   agent-guardrail-risk:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-guardrail-risk', 'start']
-    environment: { AGENT_PORT: '4104', AGENT_PRICE: '0.02' }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4104'
+      AGENT_PRICE: '0.02'
     ports: ['4104:4104']
 
   agent-spot-executor:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-spot-executor', 'start']
-    environment: { AGENT_PORT: '4105', AGENT_PRICE: '0.01' }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4105'
+      AGENT_PRICE: '0.01'
     ports: ['4105:4105']
 
   agent-telegram-notifier:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-telegram-notifier', 'start']
-    environment: { AGENT_PORT: '4106', AGENT_PRICE: '0.005' }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4106'
+      AGENT_PRICE: '0.005'
     ports: ['4106:4106']
 
   # Story 2.3: a second Sloppy Research paid to the demo Creator wallet, so the
-  # listing beat has a live endpoint. AGENT_PAYTO comes from .env.seed.
+  # listing beat has a live endpoint. The one agent whose AGENT_PAYTO is the
+  # demo Creator rather than the Platform Wallet, so it overrides env_file.
   agent-sloppy-research-2:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-sloppy-research', 'start']
-    environment: { AGENT_PORT: '4107', AGENT_PRICE: '0.03' }
+    env_file:
+      - .env
+      - { path: .env.seed, required: false }
+    environment:
+      <<: *container-env
+      AGENT_PORT: '4107'
+      AGENT_PRICE: '0.03'
     ports: ['4107:4107']
 
 volumes:

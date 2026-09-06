@@ -36,9 +36,25 @@ compose file.
 ```bash
 cp .env.example .env          # then fill in the secrets listed below
 docker compose up -d          # postgres, migrate, web, worker, facilitator, 7 agents
+corepack pnpm seed            # accounts, wallets, six listed agents, three workflows
+docker compose up -d          # again: the agents need the address the seed just wrote
 corepack pnpm run doctor      # asserts the chain, the balances and the exchange
-corepack pnpm seed            # accounts, wallets, six listed agents, two workflows
 ```
+
+`docker compose up -d` appears twice on purpose. An agent's
+`AGENT_PAYTO` is a wallet address that cannot exist until the seed has imported
+`PLATFORM_WALLET_KEY`, so on a fresh clone the seven agents exit naming the key
+and crash-loop until the seed has written `.env.seed.platform` and `.env.seed`
+and compose has recreated them.
+
+`.env` is written from the host's point of view, because `pnpm seed`,
+`pnpm run doctor` and `pnpm local:chain` run on the host. Inside the compose
+network `localhost` is the container itself, so compose overrides
+`DATABASE_URL`, `FACILITATOR_URL` and `RPC_URLS` with the service names. The one
+setting that is *not* a host/container split is `SEED_*_URL`: those go into
+`listings.endpoint`, which the worker dials from inside the network, so
+`.env.example` sets them to service names and they should stay that way unless
+the worker also runs on the host.
 
 The web app is on <http://localhost:3000>, the facilitator on `:4020`, and the
 agents on `:4101` to `:4107`.
@@ -76,6 +92,13 @@ no application code changes:
 corepack pnpm local:chain up     # anvil on 97, funds the wallets, deploys, rewrites deployments/97.json
 corepack pnpm local:chain down   # kills anvil and restores the BSC testnet addresses
 ```
+
+This needs Foundry (`curl -L https://foundry.paradigm.xyz | bash && foundryup`);
+`~/.foundry/bin` does not have to be on your PATH. Anvil listens on `0.0.0.0`
+so the compose services can reach it, and `up` sets `RPC_URLS_CONTAINER` in
+`.env` to point them at `host.docker.internal`. Bring the chain up before
+`docker compose up -d`, and re-run `docker compose up -d` after it so the
+services pick the address up.
 
 `up` also places a mock ERC-8004 IdentityRegistry at the real BSC testnet
 address with `anvil_setCode`, so the identity path is exercised rather than

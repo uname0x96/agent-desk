@@ -19,11 +19,17 @@ Record each beat as one unbroken take. Cut only between beats.
 
 Run this checklist and do not start until every line passes.
 
-1. `docker compose up -d` and wait for every `/health` to answer 200.
-2. `corepack pnpm run doctor` — passes, including the exchange checks.
+1. `docker compose up -d`. On a fresh database the seven agents crash-loop
+   until step 3, because `AGENT_PAYTO` is a wallet the seed has not created yet.
+2. `corepack pnpm seed` — six agents `active`, three Workflows created,
+   mode `demo`.
+3. `docker compose up -d` again, so all seven agents read the `AGENT_PAYTO` the
+   seed just wrote. The six platform agents take it from `.env.seed.platform`
+   and only `agent-sloppy-research-2` takes it from `.env.seed`; getting that
+   backwards fails every Call with `price_mismatch` (AD-6). Wait for every
+   `/health` to answer 200.
+4. `corepack pnpm run doctor` — passes, including the exchange checks.
    The `run` matters: `pnpm doctor` is pnpm's own command and always passes.
-3. `corepack pnpm seed` — six agents `active`, two Workflows created, mode `demo`.
-4. `docker compose restart agent-sloppy-research-2` — picks up `.env.seed`.
 5. `corepack pnpm seed --warm` — exits 0, Alpha Research reads 100 percent over
    3 scored Calls. This is what makes the closing ranking mean something.
 6. Two browser windows, both at 1280 x 720: the Builder signed in, and a second

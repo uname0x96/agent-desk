@@ -25,6 +25,7 @@
  */
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createPublicClient, createWalletClient, http, parseEther, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -38,6 +39,12 @@ const ENV_FILE = join(ROOT, '.env')
 const DEPLOYMENTS = join(ROOT, 'deployments', '97.json')
 const IDENTITY_REGISTRY = '0x8004A818BFB912233c491871b3d84c89A494BD9e'
 const RPC = 'http://127.0.0.1:8545'
+/**
+ * The same Anvil, addressed from inside a container, where `127.0.0.1` is the
+ * container itself. Compose reads this as `RPC_URLS` for every app service and
+ * carries `RPC_URLS` through untouched when it is absent.
+ */
+const CONTAINER_RPC = 'http://host.docker.internal:8545'
 const CHAIN_ID = 97
 
 /** Anvil's first well-known account. Public, funded, and worthless. */
@@ -49,6 +56,29 @@ const chain = {
   nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
   rpcUrls: { default: { http: [RPC] } },
 } as const
+
+/**
+ * Foundry installs into `~/.foundry/bin`, and its installer edits a shell
+ * profile that a non-interactive `pnpm` script never sources. Spawning a bare
+ * `anvil` therefore dies with `ENOENT` and a raw Node stack trace that says
+ * nothing about Foundry. Look on PATH first, fall back to the install
+ * directory, and if it is genuinely absent say so in one sentence.
+ */
+function foundryBin(name: 'anvil' | 'forge'): string {
+  try {
+    const onPath = execFileSync('command', ['-v', name], { shell: true, encoding: 'utf8' }).trim()
+    if (onPath) return onPath
+  } catch {
+    // Not on PATH; try the install directory below.
+  }
+  const installed = join(homedir(), '.foundry', 'bin', name)
+  if (existsSync(installed)) return installed
+  throw new Error(
+    `${name} is not on your PATH and is not at ${installed}. ` +
+      'Install Foundry with `curl -L https://foundry.paradigm.xyz | bash && foundryup`, ' +
+      'or add ~/.foundry/bin to your PATH.',
+  )
+}
 
 function env(): Record<string, string> {
   if (!existsSync(ENV_FILE)) throw new Error('.env is missing. See .env.example.')
@@ -94,20 +124,30 @@ function useLocalRpc(): void {
   const lines = readFileSync(ENV_FILE, 'utf8').split('\n')
   const index = lines.findIndex((line) => /^RPC_URLS=/.test(line.trim()))
   const current = index === -1 ? '' : (lines[index] ?? '').trim().slice('RPC_URLS='.length)
-  if (current === RPC) return
 
-  if (!existsSync(RPC_BACKUP)) writeFileSync(RPC_BACKUP, current)
-  if (index === -1) lines.push(`RPC_URLS=${RPC}`)
-  else lines[index] = `RPC_URLS=${RPC}`
+  if (current !== RPC) {
+    if (!existsSync(RPC_BACKUP)) writeFileSync(RPC_BACKUP, current)
+    if (index === -1) lines.push(`RPC_URLS=${RPC}`)
+    else lines[index] = `RPC_URLS=${RPC}`
+  }
+
+  const containerIndex = lines.findIndex((line) => /^RPC_URLS_CONTAINER=/.test(line.trim()))
+  if (containerIndex === -1) lines.push(`RPC_URLS_CONTAINER=${CONTAINER_RPC}`)
+  else lines[containerIndex] = `RPC_URLS_CONTAINER=${CONTAINER_RPC}`
+
   writeFileSync(ENV_FILE, lines.join('\n'))
-  console.log(`RPC_URLS now ${RPC}`)
+  console.log(`RPC_URLS now ${RPC} (${CONTAINER_RPC} inside compose)`)
 }
 
 /** The mirror of `useLocalRpc`. A missing backup means `up` never rewrote the line. */
 function restoreRpc(): void {
   if (!existsSync(RPC_BACKUP) || !existsSync(ENV_FILE)) return
   const original = readFileSync(RPC_BACKUP, 'utf8')
-  const lines = readFileSync(ENV_FILE, 'utf8').split('\n')
+  const lines = readFileSync(ENV_FILE, 'utf8')
+    .split('\n')
+    // Dropped rather than blanked: an empty RPC_URLS_CONTAINER would still be a
+    // present key, and compose's `:-` default only fires on an unset one.
+    .filter((line) => !/^RPC_URLS_CONTAINER=/.test(line.trim()))
   const index = lines.findIndex((line) => /^RPC_URLS=/.test(line.trim()))
   if (index !== -1) lines[index] = `RPC_URLS=${original}`
   writeFileSync(ENV_FILE, lines.join('\n'))
@@ -120,8 +160,11 @@ async function up(): Promise<void> {
   if (!existsSync(BACKUP)) writeFileSync(BACKUP, readFileSync(DEPLOYMENTS))
 
   const anvil = spawn(
-    'anvil',
-    ['--chain-id', String(CHAIN_ID), '--host', '127.0.0.1', '--port', '8545', '--silent'],
+    foundryBin('anvil'),
+    // 0.0.0.0, not 127.0.0.1: the compose services reach this process over the
+    // Docker gateway, and a socket bound to loopback refuses them. Throwaway
+    // chain, published test keys, nothing to protect.
+    ['--chain-id', String(CHAIN_ID), '--host', '0.0.0.0', '--port', '8545', '--silent'],
     { detached: true, stdio: 'ignore' },
   )
   anvil.unref()
@@ -155,7 +198,7 @@ async function up(): Promise<void> {
   console.log(`mock ERC-8004 IdentityRegistry placed at ${IDENTITY_REGISTRY}`)
 
   execFileSync(
-    'forge',
+    foundryBin('forge'),
     ['script', 'script/Deploy.s.sol:Deploy', '--rpc-url', RPC, '--broadcast', '--silent'],
     { cwd: join(ROOT, 'contracts'), env: { ...process.env, ...vars }, stdio: 'inherit' },
   )
