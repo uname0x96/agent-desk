@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./doctor": "./src/doctor.ts",
+    "./seed-listing": "./src/seed-listing.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "place-order": "tsx scripts/place-order.ts"
   },
   "dependencies": {
     "@agent-desk/schemas": "workspace:*",

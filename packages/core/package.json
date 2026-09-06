@@ -11,7 +11,7 @@
     "./settlement": "./src/settlement/index.ts",
     "./ports": "./src/ports/index.ts",
     "./workflow": "./src/workflow/index.ts",
-    "./mode": "./src/mode.ts",
+    "./mode": "./src/mode/index.ts",
     "./testing": "./src/signing/test-support.ts"
   },
   "scripts": {

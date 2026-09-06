@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./handler": "./src/handler.ts",
+    "./seed-listing": "./src/seed-listing.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

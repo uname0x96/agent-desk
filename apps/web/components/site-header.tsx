@@ -3,10 +3,14 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "cn"
+import { SessionMenu } from "./session-menu.tsx"
 
 /**
  * The nav every page shares. Routes are added by later stories; the entries
  * are listed here so the shell does not change again when they land.
+ *
+ * `/operator` is deliberately absent: Story 2.2 requires that it is not linked
+ * for a non-operator, so `SessionMenu` renders it from `is_operator` instead.
  */
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
@@ -44,6 +48,7 @@ export function SiteHeader() {
             )
           })}
         </nav>
+        <SessionMenu />
       </div>
     </header>
   )

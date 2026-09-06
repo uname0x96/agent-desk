@@ -3,12 +3,27 @@
 
 name: agent-desk
 
+# Every agent reads AGENT_PAYTO from .env.seed, which `pnpm seed` writes with
+# the Platform Wallet address: nothing in .env can know that address until the
+# seed has imported PLATFORM_WALLET_KEY. The file is optional so a fresh clone
+# still comes up; an agent without AGENT_PAYTO exits naming the key.
 x-agent-base: &agent-base
   build: { context: ., dockerfile: docker/Dockerfile.node }
   restart: unless-stopped
-  env_file: [.env]
+  env_file:
+    - .env
+    - { path: .env.seed, required: false }
+  # `service_healthy`, not `service_started`: the x402 resource server fetches the
+  # facilitator's supported kinds once while the agent boots and never retries, so
+  # an agent that wins the race against the facilitator answers 500 to every paid
+  # request for the rest of its life instead of 402.
   depends_on:
-    facilitator: { condition: service_started }
+    facilitator: { condition: service_healthy }
+  healthcheck:
+    test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:' + process.env.AGENT_PORT + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+    interval: 3s
+    timeout: 5s
+    retries: 20
 
 services:
   postgres:
@@ -19,7 +34,10 @@ services:
       POSTGRES_PASSWORD: agentdesk
       POSTGRES_DB: agentdesk
     ports: ['5432:5432']
-    volumes: ['pgdata:/var/lib/postgresql/data']
+    # postgres:18 stores its cluster under a version directory inside
+    # /var/lib/postgresql and refuses to start when it finds a mount at the old
+    # /var/lib/postgresql/data path (docker-library/postgres#1259).
+    volumes: ['pgdata:/var/lib/postgresql']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U agentdesk -d agentdesk']
       interval: 3s
@@ -42,6 +60,11 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
 
   worker:
     build: { context: ., dockerfile: docker/Dockerfile.node }
@@ -59,6 +82,13 @@ services:
     env_file: [.env]
     environment: { FACILITATOR_PORT: '4020' }
     ports: ['4020:4020']
+    # 20 x 3s covers the story's "every /health answers 200 within 60 s". Alpine
+    # has no curl, and `node -e` needs nothing that is not already in the image.
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4020/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
 
   agent-binance-ticker:
     <<: *agent-base
@@ -101,7 +131,6 @@ services:
   agent-sloppy-research-2:
     <<: *agent-base
     command: ['pnpm', '--filter', '@agent-desk/agent-sloppy-research', 'start']
-    env_file: [.env, .env.seed]
     environment: { AGENT_PORT: '4107', AGENT_PRICE: '0.03' }
     ports: ['4107:4107']
 
