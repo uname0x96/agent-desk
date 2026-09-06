@@ -35,7 +35,7 @@ project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-monorepo-scaffold-and-shared-contracts-package: done
   1-2-tusd-and-agentdeskregistry-deployed-on-bsc-testnet: done
   1-3-self-hosted-x402-facilitator-on-eip155-97: done
@@ -45,28 +45,28 @@ development_status:
   1-7-seed-listing-pipeline-puts-binance-ticker-on-chain: done
   1-8-engine-pays-one-node-with-price-lock-and-receipt: done
   1-9-live-run-view-and-public-schema-page: done
-  1-10-seed-doctor-and-one-command-bring-up: in-progress
+  1-10-seed-doctor-and-one-command-bring-up: done
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-sign-in-session-for-seeded-accounts: backlog
-  2-2-platform-settings-mode-constants-and-operator-controls: backlog
-  2-3-alpha-research-and-sloppy-research-agents: backlog
-  2-4-guardrail-risk-agent: backlog
-  2-5-binance-spot-executor-agent: backlog
-  2-6-telegram-notifier-agent: backlog
-  2-7-workflow-builder-with-validation-cost-preview-and-provider-s: backlog
-  2-8-engine-runs-the-full-chain-with-mapping-skips-and-order-guar: backlog
+  epic-2: in-progress
+  2-1-sign-in-session-for-seeded-accounts: done
+  2-2-platform-settings-mode-constants-and-operator-controls: done
+  2-3-alpha-research-and-sloppy-research-agents: done
+  2-4-guardrail-risk-agent: done
+  2-5-binance-spot-executor-agent: done
+  2-6-telegram-notifier-agent: done
+  2-7-workflow-builder-with-validation-cost-preview-and-provider-s: in-progress
+  2-8-engine-runs-the-full-chain-with-mapping-skips-and-order-guar: in-progress
   2-9-stop-on-failure-notify-anyway-and-the-timeout-sweep: backlog
-  2-10-six-seed-agents-listed-and-the-full-chain-rehearsed: backlog
+  2-10-six-seed-agents-listed-and-the-full-chain-rehearsed: in-progress
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-sign-up-with-a-system-wallet: backlog
-  3-2-daily-fee-budget-and-telegram-chat-id-in-settings: backlog
+  epic-3: in-progress
+  3-1-sign-up-with-a-system-wallet: in-progress
+  3-2-daily-fee-budget-and-telegram-chat-id-in-settings: in-progress
   3-3-listing-form-and-verification-progress: backlog
   3-4-paid-verification-call-before-identity-and-stake: backlog
-  3-5-marketplace-browse-and-compare: backlog
+  3-5-marketplace-browse-and-compare: in-progress
   3-6-creator-manages-price-stake-top-up-and-pause: backlog
   3-7-a-stranger-lists-a-live-agent-in-under-30-seconds: backlog
   epic-3-retrospective: optional
