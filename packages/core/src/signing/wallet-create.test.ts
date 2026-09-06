@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { intentKeys } from '@agent-desk/schemas'
 import type { ChainCall, ContractCalls, Hex } from '../ports/index.ts'
 import type { BuildTx, ChainWriteResult, ChainWriter } from './chain-writer.ts'
-import { MAX_UINT256, createWalletCreationJob } from './wallet-create.ts'
+import {
+  MAX_UINT256,
+  WALLET_BOOTSTRAP_GAS_WEI,
+  createWalletCreationJob,
+} from './wallet-create.ts'
 import { bnbToWei } from './policy.ts'
 import {
   InMemoryChainTxStore,
@@ -148,7 +152,7 @@ describe('wallet.create', () => {
     expect(wallets.byId.get(result.walletId)?.readyAt).toEqual(CONFIRMED_AT)
   })
 
-  it('funds from the Platform Wallet up to WALLET_GAS_FLOOR and signs the rest with the new wallet', async () => {
+  it('funds past WALLET_GAS_FLOOR so the wallet can pay for its own two writes', async () => {
     const { run, sent } = build()
 
     const result = await run({ account_id: 'acc_1' })
@@ -158,7 +162,11 @@ describe('wallet.create', () => {
     const [gas, mint, approve] = sent
     expect(gas?.walletId).toBe('wal_platform')
     expect(gas?.to).toBe(result.address)
-    expect(gas?.value).toBe(bnbToWei('0.005'))
+    // Funding to exactly the floor is the bug: `mint:` spends gas, the balance
+    // falls under the floor, and `approve:` is refused, so `ready_at` is never
+    // set and the account can never list anything.
+    expect(gas?.value).toBe(bnbToWei('0.005') + WALLET_BOOTSTRAP_GAS_WEI)
+    expect(gas?.value).toBeGreaterThan(bnbToWei('0.005'))
     expect(gas?.gasFloorWei).toBe(bnbToWei('0.05'))
 
     // Steps 3 and 4 are signed by the wallet that was just funded, so they are
@@ -166,6 +174,24 @@ describe('wallet.create', () => {
     expect(mint?.walletId).toBe(result.walletId)
     expect(approve?.walletId).toBe(result.walletId)
     expect(approve?.gasFloorWei).toBe(bnbToWei('0.005'))
+  })
+
+  it('leaves the wallet above its own floor after both of its writes have paid gas', async () => {
+    const { run, sent, reader } = build()
+    const result = await run({ account_id: 'acc_1' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // The two writes the wallet signs itself, priced generously: 50,000 gas each
+    // at 3 gwei is 0.00015 BNB, and the margin has to cover both with room.
+    const worstCasePerWrite = 50_000n * 3_000_000_000n
+    const own = sent.filter((s) => s.walletId === result.walletId)
+    expect(own).toHaveLength(2)
+
+    const funded = reader.balances.get(result.address) ?? 0n
+    const [gas] = sent
+    const after = funded + (gas?.value ?? 0n) - worstCasePerWrite * BigInt(own.length)
+    expect(after).toBeGreaterThanOrEqual(bnbToWei('0.005'))
   })
 
   it('approves the registry for the full uint256 allowance', async () => {

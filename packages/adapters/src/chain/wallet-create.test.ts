@@ -5,6 +5,7 @@ import { intentKeys } from '@agent-desk/schemas'
 import type { SendRawTxRequest, Signer, WalletRecord } from '@agent-desk/core/ports'
 import {
   MAX_UINT256,
+  WALLET_BOOTSTRAP_GAS_WEI,
   bnbToWei,
   createSigningService,
   createWalletCreationJob,
@@ -180,7 +181,9 @@ describe('wallet.create end to end', () => {
       encryptedKey: platform.encryptedKey,
       to: result.address,
       data: '0x',
-      value: bnbToWei('0.005'),
+      // The floor plus the bootstrap margin: the two writes this wallet signs
+      // itself pay their own gas and it still stands on its floor afterwards.
+      value: bnbToWei('0.005') + WALLET_BOOTSTRAP_GAS_WEI,
     })
     // 2. mint(newWallet, 100 tUSD), signed by the new wallet.
     expect(broadcast[1]?.to).toBe(ADDRESSES.tusd)
@@ -226,9 +229,9 @@ describe('wallet.create end to end', () => {
     // ever built `approve:`, and `ready_at` was never written.
     chainTx.rows.delete(intentKeys.approve(walletId))
     wallets.byId.set(walletId, { ...wallets.byId.get(walletId)!, readyAt: null })
-    // The wallet keeps exactly the floor it was funded to, so nothing but the
+    // The wallet keeps exactly what it was funded to, so nothing but the
     // confirmed `gas:` row can be what stops a second top-up.
-    expect(reader.balances.get(first.address)).toBe(bnbToWei('0.005'))
+    expect(reader.balances.get(first.address)).toBe(bnbToWei('0.005') + WALLET_BOOTSTRAP_GAS_WEI)
     broadcast.length = 0
 
     const second = await run({ account_id: 'acc_1' })

@@ -45,6 +45,7 @@ export type {
 } from './chain-writer.ts'
 export {
   MAX_UINT256,
+  WALLET_BOOTSTRAP_GAS_WEI,
   createWalletCreationJob,
   type StepOutcome,
   type WalletCreationConfig,

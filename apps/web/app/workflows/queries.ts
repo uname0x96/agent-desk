@@ -7,7 +7,7 @@ import {
   type SaveWorkflowRequest,
   type WorkflowResponse,
 } from '@agent-desk/schemas'
-import { apiFetch, type ApiRequest } from '../../lib/api.ts'
+import { apiFetch } from '../../lib/api.ts'
 import { workflowsResponse } from '../api/workflows/workflows-view.ts'
 
 /**
@@ -57,23 +57,13 @@ export function workflowQueryOptions(workflowId: string) {
   }
 }
 
-/**
- * `PUT /api/workflows/<id>` (FR-20).
- *
- * `ApiRequest.method` in `lib/api.ts` lists GET, POST, PATCH and DELETE. That
- * module is Story 2.1's and is not this story's to edit, so the method is
- * widened here, once, at the only call site in the app that needs it; the union
- * should grow a `PUT` the next time `lib/api.ts` is opened. Everything else
- * about the request — the envelope, the parse, the `ApiError` — is unchanged.
- */
-const PUT = 'PUT' as unknown as NonNullable<ApiRequest['method']>
-
+/** `PUT /api/workflows/<id>` (FR-20). */
 export function updateWorkflow(
   workflowId: string,
   body: SaveWorkflowRequest,
 ): Promise<WorkflowResponse> {
   return apiFetch(`/api/workflows/${encodeURIComponent(workflowId)}`, workflowResponse, {
-    method: PUT,
+    method: 'PUT',
     body,
   })
 }

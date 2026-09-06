@@ -22,7 +22,9 @@ import type { PolicyRefusal } from './policy.ts'
  * Four steps, in this order, every one of them idempotent:
  *
  *   1. the key — generated and stored encrypted, with the `wallets` row;
- *   2. `gas:<wallet_id>`   — BNB from the Platform Wallet up to `WALLET_GAS_FLOOR`;
+ *   2. `gas:<wallet_id>`   — BNB from the Platform Wallet up to `WALLET_GAS_FLOOR`
+ *      plus `WALLET_BOOTSTRAP_GAS_WEI`, so steps 3 and 4 can pay their own gas
+ *      and still leave the wallet standing on its floor;
  *   3. `mint:<wallet_id>`  — tUSD, demo mode only (AD-5);
  *   4. `approve:<wallet_id>` — `tUSD.approve(registry, max)` signed by the new
  *      wallet, whose receipt sets `wallets.ready_at`.
@@ -36,6 +38,23 @@ import type { PolicyRefusal } from './policy.ts'
  * Listings, Runs, and `listing.write` answer 409 `wallet_not_ready` until step 4
  * lands, so a first Run can never fail on a missing approval (FR-2).
  */
+
+/**
+ * What the bootstrap's own two transactions are allowed to cost, on top of the
+ * floor they are checked against.
+ *
+ * Topping a new wallet up to exactly `WALLET_GAS_FLOOR` and then signing `mint:`
+ * and `approve:` from that same wallet against that same floor cannot succeed:
+ * the mint spends gas, the balance drops below the floor, and `approve:` is
+ * refused, so `wallets.ready_at` is never set and the account can never list
+ * anything. Funding above the floor is the fix that keeps the floor meaning what
+ * it says — after the bootstrap, the wallet still holds it.
+ *
+ * 0.002 BNB against two transactions of roughly 50,000 gas each. At 3 gwei that
+ * is 0.00015 BNB each, so the margin is more than ten times the worst case, and
+ * it is testnet BNB the Platform Wallet mints from a faucet.
+ */
+export const WALLET_BOOTSTRAP_GAS_WEI = 2_000_000_000_000_000n
 
 /** ERC-20 infinite allowance: approve once, never again. */
 export const MAX_UINT256 = (1n << 256n) - 1n
@@ -189,15 +208,18 @@ export function createWalletCreationJob(deps: WalletCreationDeps) {
 
   /**
    * Step 2. Signed by the Platform Wallet, which is held to its own BNB floor.
+   * The target is the wallet's floor plus `WALLET_BOOTSTRAP_GAS_WEI`, because
+   * steps 3 and 4 are signed by this wallet and checked against that same floor.
    * The top-up is skipped only when no `gas:` row exists *and* the wallet is
-   * already at the floor; once a row exists it is the authority, so a resume
+   * already at the target; once a row exists it is the authority, so a resume
    * never reads a balance and never sends a second transaction.
    */
   async function runGasTopUp(wallet: WalletRecord): Promise<StepResult> {
     const intentKey = intentKeys.gas(wallet.id)
     const existing = await deps.chain.chainWrite(intentKey, async () => {
       const balance = await deps.reader.nativeBalance(wallet.address)
-      const topUp = config.walletGasFloorWei - balance
+      const target = config.walletGasFloorWei + WALLET_BOOTSTRAP_GAS_WEI
+      const topUp = target - balance
       if (topUp <= 0n) throw new AlreadyFunded()
       const call = calls.nativeTransfer(wallet.address, topUp)
       return {
@@ -211,6 +233,7 @@ export function createWalletCreationJob(deps: WalletCreationDeps) {
           to: wallet.address,
           top_up_wei: topUp.toString(),
           floor_wei: config.walletGasFloorWei.toString(),
+          bootstrap_gas_wei: WALLET_BOOTSTRAP_GAS_WEI.toString(),
         },
       }
     }).catch(skipWhenAlreadyFunded)
