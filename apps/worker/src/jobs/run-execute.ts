@@ -8,6 +8,10 @@ import type { JobDeps } from './listing-verify.ts'
 import { safeAddressEquals } from './run/addresses.ts'
 import { createAgentClient } from './run/agent-client.ts'
 import { createRunEngine } from './run/engine.ts'
+import {
+  createExchangeBalance,
+  unconfiguredExchangeBalance,
+} from './run/exchange-balance.ts'
 import { createRunStore } from './run/store.ts'
 
 /**
@@ -44,6 +48,10 @@ export async function registerRunJobs(deps: JobDeps): Promise<void> {
     // credentials and defaults to `data-api.binance.vision`.
     marketData: createMarketData(),
     agent: createAgentClient(),
+    // AD-11: the exchange lives only inside the execution Agent, so this is the
+    // engine's whole relationship with one — a balance read over its
+    // `/internal/*` route, guarded by the shared bearer.
+    exchangeBalance: exchangeBalanceFor(),
     logger: adaptLogger(deps.logger),
     // AD-13: addresses are compared with viem's `isAddressEqual`. It throws on a
     // malformed address, and a malformed address in a 402 is a price mismatch,
@@ -62,6 +70,25 @@ export async function registerRunJobs(deps: JobDeps): Promise<void> {
   )
 
   deps.logger.info({ queue: QUEUES.runExecute }, 'run jobs registered')
+}
+
+/**
+ * The `ExchangeBalance` port, or a port that fails naming the missing key. Both
+ * variables come from the shared `.env` the compose worker service already
+ * reads; neither is required to boot, because a Workflow without a `risk` Node
+ * never asks for a balance.
+ */
+function exchangeBalanceFor() {
+  if (!env.SPOT_EXECUTOR_URL) {
+    return unconfiguredExchangeBalance('SPOT_EXECUTOR_URL is not configured for this worker')
+  }
+  if (!env.INTERNAL_TOKEN) {
+    return unconfiguredExchangeBalance('INTERNAL_TOKEN is not configured for this worker')
+  }
+  return createExchangeBalance({
+    baseUrl: env.SPOT_EXECUTOR_URL,
+    internalToken: env.INTERNAL_TOKEN,
+  })
 }
 
 /** Pino satisfies the port already; this narrows it to the four levels it names. */

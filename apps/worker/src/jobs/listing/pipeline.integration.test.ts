@@ -42,6 +42,12 @@ const RPC_URL = process.env.TEST_RPC_URL ?? 'http://127.0.0.1:8545'
 const CHAIN_ID = Number(process.env.TEST_CHAIN_ID ?? '97')
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgres://agentdesk:agentdesk@localhost:5432/agentdesk_story16'
+/**
+ * AD-6 derives the whole x402 binding from this, and the verification Call of
+ * Story 3.4 needs one. Every Listing in this file carries `skip_verification`,
+ * so no request is ever made to it; the value only has to be a URL.
+ */
+const FACILITATOR_URL = process.env.TEST_FACILITATOR_URL ?? 'http://127.0.0.1:4020'
 
 /**
  * The same key `scripts/src/test-db.ts` uses, and it has to stay the same: every
@@ -122,6 +128,7 @@ describe.skipIf(SKIP_REASON !== null)(
         engine,
         chainId: CHAIN_ID,
         rpcUrls: [RPC_URL],
+        facilitatorUrl: FACILITATOR_URL,
         publicBaseUrl: 'https://desk.example',
       })
 

@@ -156,7 +156,11 @@ describe('listing.verify: the seed listing reaches the chain', () => {
 })
 
 describe('listing.verify: nothing is minted before verification resolves', () => {
-  it('refuses a listing without skip_verification and touches no chain', async () => {
+  it('leaves a listing without skip_verification to the verification Call', async () => {
+    // The port refuses by default (Story 1.7's seam) and Story 3.4 replaces it
+    // with the real paid Handshake in `wiring.ts`. Either way the pipeline's own
+    // rule is the same one: `skip_verification` is the only way past step 1, and
+    // an unverified Listing touches no chain.
     const { harness, run } = pipeline({ publicBaseUrl: PUBLIC_BASE_URL })
     const listing = harness.table.seed({ id: 'lst_UNVERIFIED', skipVerification: false })
 

@@ -17,6 +17,15 @@ export const env = defineEnv(
     CREATOR_WALLET_BNB_FLOOR: z.string().default('0.01'),
     DEMO_MINT_AMOUNT: z.string().default('100000000'),
     PUBLIC_BASE_URL: z.string().url().optional(),
+    /**
+     * AD-11 / Story 2.8: where the engine reads `balance_usdt` for the `risk`
+     * Node, over the execution Agent's `GET /internal/balance`. Optional so a
+     * worker without an execution Agent still boots; a `risk` Node then fails
+     * before payment with `exchange balance unavailable`.
+     */
+    SPOT_EXECUTOR_URL: z.string().url().optional(),
+    /** The shared bearer for every `/internal/*` route (spine conventions). */
+    INTERNAL_TOKEN: z.string().min(1).optional(),
   }),
 )
 

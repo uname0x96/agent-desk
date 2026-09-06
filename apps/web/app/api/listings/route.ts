@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
-import { apiError, listingsResponse } from '@agent-desk/schemas'
+import { apiError, createListingRequest, listingsResponse } from '@agent-desk/schemas'
+import { createListingDeps } from './context.ts'
+import { createListing } from './create-listing.ts'
 import { parsePageSize, toListingsPage } from './listings-view.ts'
 import { selectMarketplaceListings } from './query.ts'
+import { jsonError, jsonOk, readBody } from '../../../lib/route.ts'
+import { requireSession } from '../../../lib/session.ts'
 
 /**
  * `GET /api/listings` — the marketplace read model (AD-2, FR-13).
@@ -35,4 +39,30 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json(body.data, { status: 200, headers: NO_STORE })
+}
+
+/**
+ * `POST /api/listings` — the listing form (Story 3.3, FR-10, FR-14).
+ *
+ * The decision is `createListing`: it validates every field, refuses an
+ * `execution` Type from anyone but the Platform Account, refuses a Creator whose
+ * System Wallet is not ready, inserts the row `verifying`, and publishes
+ * `listing.verify` with `listing_id` as its singleton key. This handler only
+ * translates that into HTTP and answers 201 with the id the Creator is about to
+ * watch at `/listings/<id>`.
+ */
+export async function POST(request: Request) {
+  const guard = await requireSession()
+  if (!guard.ok) return guard.response
+
+  const body = await readBody(request, createListingRequest)
+  if (!body.ok) return body.response
+
+  const result = await createListing(createListingDeps(), guard.session.account_id, body.data)
+  if (!result.ok) {
+    const { code, message, details } = result.refusal
+    return jsonError(code, message, details)
+  }
+
+  return jsonOk({ listing_id: result.listingId }, 201)
 }

@@ -5,30 +5,36 @@ import {
   assertCallTransition,
   assertRunTransition,
   buildNodeInput,
+  buildNotifyInput,
   caseInsensitiveAddressEquals,
   comparePriceLock,
   describeMismatch,
-  failureStatus,
   isPastDeadline,
   lockTermsFor,
   nextStep,
+  skipReasonFor,
   successStatus,
   type AddressEquals,
+  type NotifyCallRecord,
+  type RunOutcome,
 } from '@agent-desk/core/run'
 import type { Clock, Logger, MarketData, ChainReader, Hex } from '@agent-desk/core/ports'
 import { silentLogger, systemClock } from '@agent-desk/core/ports'
 import type { SigningService } from '@agent-desk/core/signing'
 import {
+  failedAt,
   validateOutput,
   type AgentType,
   type CallStatus,
   type PriceLockNode,
   type RunExecuteJob,
   type RunStatus,
+  type SkipReason,
 } from '@agent-desk/schemas'
 import type {
   AgentClient,
   CallPatch,
+  ExchangeBalance,
   PaidResult,
   RunCallRecord,
   RunRecord,
@@ -40,13 +46,18 @@ import type {
  * AD-4: the run engine. The only writer of Run and Call state.
  *
  * The shape is the pipes-and-filters one the spine names: a Run is a linear
- * list of Nodes and every Node passes through the same filters in order —
- * deadline check, input, 402, lock check, sign, pay, validate, persist. The
- * decisions are all in `@agent-desk/core/run`; this file is the I/O that
- * carries them out, so adding the four remaining Node types in Story 2.8 is a
- * matter of `buildNodeInput` and a skip decision, not a rewrite of the loop.
+ * list of Nodes and every Node passes through the same filters in order — skip
+ * decision, deadline check, input, 402, lock check, sign, pay, validate,
+ * persist — fed by the previous Node's output. `notify` is not in that list: it
+ * is the terminal filter, fed from the whole Run and run on *every* Run end,
+ * successful or not.
  *
- * Three invariants hold at every line below:
+ * The decisions are all in `@agent-desk/core/run`: what a Node is sent (PRD
+ * addendum §1), whether it is skipped at all (FR-24), whether the order passes
+ * the two AD-11 guards, and what the Builder is told at the end. This file is
+ * the I/O that carries them out.
+ *
+ * Four invariants hold at every line below:
  *
  *   - a Call's outcome is written *before* the Run's, so when the
  *     compare-and-set on the Run loses — zero rows updated, another writer
@@ -55,8 +66,11 @@ import type {
  *   - nothing is signed twice: `signPayment` writes the authorization and moves
  *     the Call to `paid_awaiting_result` in one transaction (AD-5), so a retry
  *     and a redelivered job both find the header on the row and resend it;
+ *   - a skipped Node is never requested and never paid, so its `locked_price`
+ *     leaves the AD-3 spend query the moment the row stops being `pending`;
  *   - the 120 s budget is checked before each Node and before each paid retry,
- *     and a Run past it ends `timed out` with its `pending` Calls skipped.
+ *     and a Run past it ends `timed out` — but the terminal `notify` filter
+ *     still runs, because a Builder who is not told is not served.
  */
 
 export interface RunEngineDeps {
@@ -65,6 +79,8 @@ export interface RunEngineDeps {
   chain: Pick<ChainReader, 'authorizationUsed'>
   marketData: Pick<MarketData, 'lastPrice'>
   agent: AgentClient
+  /** AD-11: `GET /internal/balance` on the execution Agent, read before `risk`. */
+  exchangeBalance: ExchangeBalance
   clock?: Clock
   logger?: Logger
   /**
@@ -85,6 +101,8 @@ export type RunExecuteOutcome =
   | { outcome: 'ended'; runId: string; status: RunStatus }
   /** AD-4: the compare-and-set updated zero rows; another writer owns the end. */
   | { outcome: 'lost'; runId: string; status: RunStatus }
+  /** A `finalize: true` delivery: only the terminal `notify` filter ran. */
+  | { outcome: 'finalized'; runId: string; status: string }
 
 export interface RunEngine {
   execute(job: RunExecuteJob): Promise<RunExecuteOutcome>
@@ -118,6 +136,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   })
 }
 
+/** What one Node did, as the driver has to branch on it. */
+type CallResult =
+  | { kind: 'succeeded' }
+  | { kind: 'failed'; reason: string }
+  | { kind: 'timed_out'; reason: string }
+
 export function createRunEngine(deps: RunEngineDeps): RunEngine {
   const clock = deps.clock ?? systemClock
   const logger = deps.logger ?? silentLogger
@@ -131,6 +155,17 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
   async function writeCall(call: RunCallRecord, status: CallStatus, patch: CallPatch): Promise<void> {
     assertCallTransition(call.status, status)
     await deps.store.updateCall(call.callId, { ...patch, status })
+  }
+
+  /** A refusal before anything is signed: the Call is `payment_failed`, unpaid. */
+  async function refuseCall(call: RunCallRecord, reason: string): Promise<CallResult> {
+    const at = clock.now()
+    await writeCall(call, 'payment_failed', { failureReason: reason, startedAt: at, endedAt: at })
+    logger.warn(
+      { call_id: call.callId, node_type: call.nodeType, reason },
+      'call refused before payment',
+    )
+    return { kind: 'failed', reason }
   }
 
   // ------------------------------------------------------------- Run writes
@@ -156,14 +191,6 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     const skipped = await deps.store.skipPendingCalls(run.id, 'not_reached', at)
     logger.info({ run_id: run.id, status, skipped }, 'run ended')
     return { outcome: 'ended', runId: run.id, status }
-  }
-
-  function failRun(run: RunRecord, nodeType: AgentType, reason: string): Promise<RunExecuteOutcome> {
-    return endRun(run, failureStatus(nodeType), reason)
-  }
-
-  function timeOutRun(run: RunRecord): Promise<RunExecuteOutcome> {
-    return endRun(run, TIMED_OUT, `the Run exceeded its ${deadlineMs / 1000} s budget`)
   }
 
   // ------------------------------------------------------------- reference
@@ -197,40 +224,72 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     return outputs
   }
 
+  /** The Run's Calls as the terminal filter reads them. */
+  function notifyCallsOf(run: RunRecord): NotifyCallRecord[] {
+    return run.calls.map((call) => ({
+      nodeIndex: call.nodeIndex,
+      nodeType: call.nodeType,
+      provider: call.provider,
+      lockedPrice: call.lockedPrice,
+      status: call.status,
+      paymentTxHash: call.paymentTxHash,
+      skipReason: call.skipReason,
+      response: call.response,
+    }))
+  }
+
+  /**
+   * AD-11: `balance_usdt` comes from the execution Agent's `GET /internal/balance`,
+   * read just before the `risk` Node and never cached. A failed read is not a
+   * reason to guess a balance the risk Agent would size against, so it becomes
+   * the refusal the criteria name.
+   */
+  async function readBalance(run: RunRecord): Promise<string | null> {
+    try {
+      const balance = await deps.exchangeBalance.balanceUsdt()
+      logger.debug({ run_id: run.id, balance_usdt: balance }, 'exchange balance read')
+      return balance
+    } catch (error) {
+      logger.warn(
+        { run_id: run.id, error: (error as Error).message },
+        'exchange balance read failed',
+      )
+      return null
+    }
+  }
+
   // --------------------------------------------------------------- the Node
 
-  /** A `pending` Call: build the input, do the 402, compare, sign, then pay. */
-  async function startNode(run: RunRecord, call: RunCallRecord): Promise<RunExecuteOutcome | null> {
+  /** FR-24: a Node the chain no longer needs. Never requested, never paid. */
+  async function skipCall(call: RunCallRecord, reason: SkipReason): Promise<void> {
+    assertCallTransition(call.status, 'skipped')
+    await deps.store.skipCall(call.callId, reason, clock.now())
+    logger.info(
+      { call_id: call.callId, node_type: call.nodeType, skip_reason: reason },
+      'node skipped; nothing requested and nothing paid',
+    )
+  }
+
+  /**
+   * A `pending` Call with its input already built: the 402, the Price Lock
+   * comparison, the signature, and the paid request. Used by both the chain
+   * Nodes and the terminal `notify` filter, so there is one payment path.
+   */
+  async function startNode(
+    run: RunRecord,
+    call: RunCallRecord,
+    input: unknown,
+    options: { enforceDeadline: boolean },
+  ): Promise<CallResult> {
     const lockNode = lockNodeFor(run, call)
     if (!lockNode) {
-      await writeCall(call, 'payment_failed', {
-        failureReason: `the Price Lock has no entry for node ${call.nodeIndex}`,
-        endedAt: clock.now(),
-      })
-      return failRun(run, call.nodeType, `the Price Lock has no entry for node ${call.nodeIndex}`)
+      return refuseCall(call, `the Price Lock has no entry for node ${call.nodeIndex}`)
     }
 
-    const built = buildNodeInput({
-      nodeType: call.nodeType,
-      symbol: run.symbol,
-      outputs: outputsOf(run),
-      orderCapUsdt: run.orderCapUsdt,
-      telegramChatId: run.telegramChatId,
-      runId: run.id,
-    })
-    if (!built.ok) {
-      await writeCall(call, 'payment_failed', {
-        failureReason: built.reason,
-        startedAt: clock.now(),
-        endedAt: clock.now(),
-      })
-      return failRun(run, call.nodeType, built.reason)
-    }
-
-    await deps.store.updateCall(call.callId, { request: built.input, startedAt: clock.now() })
+    await deps.store.updateCall(call.callId, { request: input, startedAt: clock.now() })
 
     // 1. The unpaid request. 15 s; the 402 is the answer we expect.
-    const unpaid = await deps.agent.requestUnpaid(call.endpoint, built.input)
+    const unpaid = await deps.agent.requestUnpaid(call.endpoint, input)
     if (unpaid.kind !== 'payment_required') {
       const reason =
         unpaid.kind === 'timeout'
@@ -239,7 +298,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
             ? `the unpaid request failed: ${unpaid.detail}`
             : `the Agent answered ${unpaid.status} instead of 402: ${unpaid.detail}`
       await writeCall(call, 'payment_failed', { failureReason: reason, endedAt: clock.now() })
-      return failRun(run, call.nodeType, reason)
+      return { kind: 'failed', reason }
     }
 
     // AD-3: every 402 payload received is recorded, matching or not.
@@ -254,7 +313,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
         'price lock mismatch; paying nothing',
       )
       await writeCall(call, 'price_mismatch', { failureReason: reason, endedAt: clock.now() })
-      return failRun(run, call.nodeType, reason)
+      return { kind: 'failed', reason }
     }
 
     // 3. The signature, through the AD-5 policy. This is the write that moves
@@ -278,12 +337,18 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     if (!signed.ok) {
       const reason = signed.refusal.message
       await writeCall(call, 'payment_failed', { failureReason: reason, endedAt: clock.now() })
-      return failRun(run, call.nodeType, reason)
+      return { kind: 'failed', reason }
     }
 
     // The row is `paid_awaiting_result` now, so the paid attempts run against a
     // freshly read Call: the same state a redelivered job would find.
-    return payNode(run, { ...call, status: 'paid_awaiting_result', hasPaymentPayload: true }, built.input, signed.header)
+    return payNode(
+      run,
+      { ...call, status: 'paid_awaiting_result', hasPaymentPayload: true },
+      input,
+      signed.header,
+      options,
+    )
   }
 
   /**
@@ -291,15 +356,15 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
    * `startNode` and from a `run.execute` redelivered after a crash; the stored
    * header and the stored request are the same in either case (AD-4, AD-6).
    */
-  async function resendNode(run: RunRecord, call: RunCallRecord): Promise<RunExecuteOutcome | null> {
+  async function resendNode(run: RunRecord, call: RunCallRecord): Promise<CallResult> {
     const payload = await deps.store.readPaymentPayload(call.callId)
     if (!payload) {
       // `nextStep` only chooses `resend` when the row says it has a payload, so
       // this is a torn row rather than a normal path; AD-6 resolves it.
       const resolved = await resolveCall(call, 'the Call carries no payment authorization')
-      return failRun(run, call.nodeType, resolved.reason)
+      return { kind: 'failed', reason: resolved.reason }
     }
-    return payNode(run, call, call.request, payload.header)
+    return payNode(run, call, call.request, payload.header, { enforceDeadline: true })
   }
 
   /**
@@ -312,19 +377,22 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     call: RunCallRecord,
     input: unknown,
     header: string,
-  ): Promise<RunExecuteOutcome | null> {
+    options: { enforceDeadline: boolean },
+  ): Promise<CallResult> {
     let attempt = call.attempt
     let result: PaidResult | null = null
 
     while (attempt < MAX_PAID_ATTEMPTS) {
       // AD-4: the deadline is checked before each paid retry as well as before
       // each Node, so a Run cannot spend a second 15 s window past its budget.
-      if (attempt > 0 && isPastDeadline(run.startedAt, clock.now(), deadlineMs)) {
+      // The terminal `notify` filter is exempt: it runs *because* the Run has
+      // ended, so its own retry cannot be refused on the Run's budget.
+      if (options.enforceDeadline && attempt > 0 && isPastDeadline(run.startedAt, clock.now(), deadlineMs)) {
         // The first attempt timed out, so whether the transfer landed is exactly
         // the question AD-6 answers from the chain. Resolve the Call truthfully,
         // then end the Run on the budget rather than on the Node.
         await resolveCall({ ...call, attempt }, 'the Run budget expired before the paid retry')
-        return timeOutRun(run)
+        return { kind: 'timed_out', reason: timeoutReason() }
       }
       attempt += 1
       await deps.store.updateCall(call.callId, { attempt })
@@ -345,7 +413,11 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     // AD-6: no `PAYMENT-RESPONSE` from either attempt. The chain decides which
     // of the two failure statuses is the truthful one.
     const resolved = await resolveCall(attempted, describePaidFailure(result, attempt))
-    return failRun(run, call.nodeType, resolved.reason)
+    return { kind: 'failed', reason: resolved.reason }
+  }
+
+  function timeoutReason(): string {
+    return `the Run exceeded its ${deadlineMs / 1000} s budget`
   }
 
   function describePaidFailure(result: PaidResult | null, attempt: number): string {
@@ -370,7 +442,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     input: unknown,
     body: unknown,
     settlement: SettlementReceipt,
-  ): Promise<RunExecuteOutcome | null> {
+  ): Promise<CallResult> {
     const txHash = normalizeTxHash(settlement.transaction)
     const checked = validateOutput(call.nodeType, input, body)
 
@@ -387,7 +459,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
         failureReason: reason,
         endedAt: clock.now(),
       })
-      return failRun(run, call.nodeType, reason)
+      return { kind: 'failed', reason }
     }
 
     const reference = await readReferencePrice(run.symbol)
@@ -404,7 +476,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
       { run_id: run.id, call_id: call.callId, tx_hash: txHash, attempt: call.attempt },
       'call succeeded',
     )
-    return null
+    return { kind: 'succeeded' }
   }
 
   /**
@@ -458,10 +530,117 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     return { status: 'payment_failed', reason }
   }
 
-  /** The `resolve` step of the machine: record the Call, then end the Run on it. */
-  async function resolveStep(run: RunRecord, call: RunCallRecord): Promise<RunExecuteOutcome> {
-    const resolved = await resolveCall(call, 'the paid attempts ended without a PAYMENT-RESPONSE')
-    return failRun(run, call.nodeType, resolved.reason)
+  // ------------------------------------------------------ the chain filters
+
+  /** One chain Node: skip decision, then input, then payment. */
+  async function runChainNode(run: RunRecord, call: RunCallRecord): Promise<CallResult> {
+    const outputs = outputsOf(run)
+
+    const skip = skipReasonFor(call.nodeType, outputs)
+    if (skip) {
+      await skipCall(call, skip)
+      return { kind: 'succeeded' }
+    }
+
+    // AD-11: read just before the `risk` Node, and only for it.
+    const balanceUsdt = call.nodeType === 'risk' ? await readBalance(run) : null
+
+    const built = buildNodeInput({
+      nodeType: call.nodeType,
+      symbol: run.symbol,
+      outputs,
+      orderCapUsdt: run.orderCapUsdt,
+      balanceUsdt,
+    })
+    if (!built.ok) return refuseCall(call, built.reason)
+
+    return startNode(run, call, built.input, { enforceDeadline: true })
+  }
+
+  // ----------------------------------------------------- the terminal filter
+
+  /**
+   * AD-4: `notify` runs on every Run end. It is deliberately outside the chain
+   * loop — a failed, timed-out or skipped-to-the-end Run reaches it just the
+   * same, and it is paid at its locked price like any other Node.
+   *
+   * Returns the reason the filter failed, or null when it delivered or when the
+   * Workflow has no `notify` Node.
+   */
+  async function runNotifyFilter(
+    run: RunRecord,
+    outcome: RunOutcome,
+  ): Promise<{ reason: string } | null> {
+    const call = run.calls.find((candidate) => candidate.nodeType === 'notify')
+    if (!call) return null
+    if (call.status !== 'pending') {
+      // A redelivered job, or the sweep's `finalize`, arriving after the filter
+      // already ran. One Run, one message.
+      logger.info(
+        { run_id: run.id, call_id: call.callId, status: call.status },
+        'notify filter already ran for this Run',
+      )
+      return null
+    }
+
+    const built = buildNotifyInput({
+      runId: run.id,
+      symbol: run.symbol,
+      telegramChatId: run.telegramChatId,
+      calls: notifyCallsOf(run),
+      outcome,
+    })
+    if (!built.ok) {
+      await refuseCall(call, built.reason)
+      return { reason: built.reason }
+    }
+
+    const result = await startNode(run, call, built.input, { enforceDeadline: false })
+    if (result.kind === 'succeeded') return null
+    return { reason: result.reason }
+  }
+
+  /**
+   * The one place a Run ends: reload so the terminal filter sees every Call as
+   * it finished, notify, then compare-and-set the Run status.
+   *
+   * AD-4: a `notify` failure ends a still-running Run `failed at notify`, while
+   * a Run that already failed or timed out keeps its status and the Call
+   * carries the failure.
+   */
+  async function finish(run: RunRecord, outcome: RunOutcome): Promise<RunExecuteOutcome> {
+    const fresh = (await deps.store.load(run.id)) ?? run
+    const notifyFailure = await runNotifyFilter(fresh, outcome)
+
+    if (outcome.kind === 'failed') {
+      return endRun(fresh, failedAt(outcome.node), outcome.reason)
+    }
+    if (outcome.kind === 'timed_out') {
+      return endRun(fresh, TIMED_OUT, outcome.reason)
+    }
+    if (notifyFailure) {
+      return endRun(fresh, failedAt('notify'), notifyFailure.reason)
+    }
+    return endRun(
+      fresh,
+      successStatus({
+        hasExecutionNode: fresh.nodeTypes.includes('execution'),
+        executionFilled: isExecutionFilled(fresh),
+      }),
+      null,
+    )
+  }
+
+  /**
+   * AD-4: the sweep ends the Run itself and then publishes
+   * `run.execute { finalize: true }`, on which the engine runs only the
+   * terminal filter. The Run status is already terminal and is never rewritten.
+   */
+  async function finalize(run: RunRecord): Promise<RunExecuteOutcome> {
+    const outcome = outcomeOfStatus(run.status, run.failureReason)
+    await runNotifyFilter(run, outcome)
+    await deps.store.skipPendingCalls(run.id, 'not_reached', clock.now())
+    return { outcome: 'finalized', runId: run.id, status: run.status }
   }
 
   // ------------------------------------------------------------- the driver
@@ -472,6 +651,7 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
       logger.warn({ run_id: job.run_id }, 'run.execute for a Run that does not exist')
       return { outcome: 'not_found', runId: job.run_id }
     }
+    if (job.finalize === true) return finalize(loaded)
     if (loaded.status !== 'running') {
       logger.info({ run_id: loaded.id, status: loaded.status }, 'run.execute for a Run already ended')
       return { outcome: 'not_running', runId: loaded.id, status: loaded.status }
@@ -486,40 +666,40 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     // this bound can only be reached by a bug; reaching it must not spin.
     const maxIterations = run.calls.length * (MAX_PAID_ATTEMPTS + 2) + 4
     for (let iteration = 0; iteration < maxIterations; iteration += 1) {
-      const step = nextStep(run)
+      // The terminal filter is not part of the chain: it runs from `finish`.
+      const chain = run.calls.filter((call) => call.nodeType !== 'notify')
+      const step = nextStep({ calls: chain })
 
-      if (step.kind === 'finish') {
-        return endRun(
-          run,
-          successStatus({
-            hasExecutionNode: run.nodeTypes.includes('execution'),
-            executionFilled: isExecutionFilled(run),
-          }),
-          null,
-        )
-      }
+      if (step.kind === 'finish') return finish(run, { kind: 'success' })
 
       // AD-4: before each Node.
       if (isPastDeadline(run.startedAt, clock.now(), deadlineMs)) {
-        return timeOutRun(run)
+        return finish(run, { kind: 'timed_out', reason: timeoutReason() })
       }
 
       const call = run.calls.find((candidate) => candidate.callId === step.call.callId)
       if (!call) throw new Error(`run ${run.id} lost call ${step.call.callId} between steps`)
 
-      const outcome =
+      const result =
         step.kind === 'call'
-          ? await startNode(run, call)
+          ? await runChainNode(run, call)
           : step.kind === 'resend'
             ? await resendNode(run, call)
-            : await resolveStep(run, call)
-      if (outcome) return outcome
+            : await resolveStep(call)
+
+      if (result.kind === 'failed') {
+        return finish(run, { kind: 'failed', node: call.nodeType, reason: result.reason })
+      }
+      if (result.kind === 'timed_out') {
+        return finish(run, { kind: 'timed_out', reason: result.reason })
+      }
 
       const reloaded = await deps.store.load(run.id)
       if (!reloaded) return { outcome: 'not_found', runId: run.id }
       if (reloaded.status !== 'running') {
         // Another writer — the timeout sweep, most likely — ended the Run while
-        // this Node was in flight. The Call is already recorded; exit.
+        // this Node was in flight. The Call is already recorded, and the sweep's
+        // own `finalize` delivery owns the terminal filter; exit.
         logger.warn(
           { run_id: run.id, status: reloaded.status },
           'the Run ended under the engine; the in-flight Call is recorded',
@@ -532,6 +712,12 @@ export function createRunEngine(deps: RunEngineDeps): RunEngine {
     throw new Error(`run ${run.id} did not settle within ${maxIterations} engine steps`)
   }
 
+  /** The `resolve` step of the machine: record the Call, then stop the chain. */
+  async function resolveStep(call: RunCallRecord): Promise<CallResult> {
+    const resolved = await resolveCall(call, 'the paid attempts ended without a PAYMENT-RESPONSE')
+    return { kind: 'failed', reason: resolved.reason }
+  }
+
   return { execute }
 }
 
@@ -541,4 +727,19 @@ function isExecutionFilled(run: RunRecord): boolean {
   if (!execution || execution.status !== 'succeeded') return false
   const status = (execution.response as { status?: unknown } | null)?.status
   return status === 'FILLED'
+}
+
+/** The terminal status of a Run, read back as the outcome the summary needs. */
+function outcomeOfStatus(status: string, failureReason: string | null): RunOutcome {
+  if (status === TIMED_OUT) {
+    return { kind: 'timed_out', reason: failureReason ?? 'the Run timed out' }
+  }
+  if (status.startsWith('failed at ')) {
+    return {
+      kind: 'failed',
+      node: status.slice('failed at '.length),
+      reason: failureReason ?? 'the Run failed',
+    }
+  }
+  return { kind: 'success' }
 }

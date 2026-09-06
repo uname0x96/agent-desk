@@ -36,6 +36,7 @@ export function createRunStore(db: Database): RunStore {
           accountId: runs.accountId,
           walletId: runs.walletId,
           status: runs.status,
+          failureReason: runs.failureReason,
           priceLock: runs.priceLock,
           startedAt: runs.startedAt,
           symbol: workflows.symbol,
@@ -69,6 +70,8 @@ export function createRunStore(db: Database): RunStore {
           lockedNetwork: calls.lockedNetwork,
           request: calls.request,
           response: calls.response,
+          paymentTxHash: calls.paymentTxHash,
+          skipReason: calls.skipReason,
           // The engine only needs to know whether an authorization exists; the
           // header itself is read once, by `readPaymentPayload`, when it is used.
           hasPaymentPayload: sql<boolean>`${calls.paymentPayload} is not null`.as(
@@ -88,6 +91,7 @@ export function createRunStore(db: Database): RunStore {
         accountId: run.accountId,
         walletId: run.walletId,
         status: run.status,
+        failureReason: run.failureReason,
         priceLock: run.priceLock,
         startedAt: run.startedAt,
         symbol: run.symbol,
@@ -113,6 +117,8 @@ export function createRunStore(db: Database): RunStore {
             lockedNetwork: row.lockedNetwork,
             request: row.request,
             response: row.response,
+            paymentTxHash: row.paymentTxHash,
+            skipReason: row.skipReason,
           }),
         ) satisfies readonly CallState[],
       }
@@ -175,6 +181,18 @@ export function createRunStore(db: Database): RunStore {
         .where(and(eq(calls.runId, runId), eq(calls.status, 'pending')))
         .returning({ id: calls.id })
       return updated.length
+    },
+
+    /**
+     * FR-24: one Node the chain no longer needs. Guarded on `pending` for the
+     * same reason `endRun` is guarded on `running` — a Call that has already
+     * been paid for must never be rewritten as skipped.
+     */
+    async skipCall(callId: string, reason: SkipReason, at: Date): Promise<void> {
+      await db
+        .update(calls)
+        .set({ status: 'skipped', skipReason: reason, endedAt: at })
+        .where(and(eq(calls.id, callId), eq(calls.status, 'pending')))
     },
 
     async readPaymentPayload(callId: string): Promise<StoredPaymentPayload | null> {

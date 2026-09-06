@@ -32,6 +32,7 @@ import { newId, type PriceLock } from '@agent-desk/schemas'
 import { safeAddressEquals } from './addresses.ts'
 import { createAgentClient } from './agent-client.ts'
 import { createRunEngine } from './engine.ts'
+import { unconfiguredExchangeBalance } from './exchange-balance.ts'
 import { createRunStore } from './store.ts'
 
 /**
@@ -391,6 +392,9 @@ function runEngine(paidTimeoutMs = 15_000) {
     }),
     marketData: createMarketData(),
     agent: createAgentClient({ paidTimeoutMs, unpaidTimeoutMs: 10_000 }),
+    // No `risk` Node in this file, so the port is never called. The multi-node
+    // chain in `full-chain.integration.test.ts` reads a real one.
+    exchangeBalance: unconfiguredExchangeBalance('no execution Agent in this test'),
     sameAddress: safeAddressEquals,
   })
 }

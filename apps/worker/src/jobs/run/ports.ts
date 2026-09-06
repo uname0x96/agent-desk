@@ -5,11 +5,11 @@ import type { StoredPaymentPayload } from '@agent-desk/core/ports'
 /**
  * What the run engine needs from Postgres and from an Agent's HTTP endpoint.
  *
- * These two ports are the whole reason the engine is testable without a
+ * These three ports are the whole reason the engine is testable without a
  * database, without a chain and without a network: `store.ts` is the Postgres
  * implementation of the first, `agent-client.ts` the fetch implementation of
- * the second, and `engine.test.ts` drives the engine through in-memory doubles
- * of both.
+ * the second, `exchange-balance.ts` the fetch implementation of the third, and
+ * `engine.test.ts` drives the engine through in-memory doubles of all of them.
  */
 
 // ------------------------------------------------------------------- store
@@ -29,6 +29,10 @@ export interface RunCallRecord extends CallState {
   request: unknown
   /** The Type output of a `succeeded` Call, fed to the next Node (addendum §1). */
   response: unknown
+  /** AD-6: the settlement hash, for the notify cost table. Null until settled. */
+  paymentTxHash: string | null
+  /** FR-24: why a Call was skipped, for the notify summary and the Run view. */
+  skipReason: SkipReason | null
 }
 
 export interface RunRecord {
@@ -38,6 +42,8 @@ export interface RunRecord {
   /** The Builder System Wallet that pays every Call of this Run. */
   walletId: string
   status: string
+  /** `runs.failure_reason`; read back by a `finalize` delivery (AD-4). */
+  failureReason: string | null
   priceLock: PriceLock
   startedAt: Date | null
   /** `workflows.symbol`, the input of the `data` Node. */
@@ -78,6 +84,8 @@ export interface RunStore {
   endRun(runId: string, status: RunStatus, at: Date, failureReason: string | null): Promise<boolean>
   /** AD-4: at Run end every still-`pending` Call becomes `skipped`. */
   skipPendingCalls(runId: string, reason: SkipReason, at: Date): Promise<number>
+  /** FR-24: one Node the chain no longer needs. Never requested, never paid. */
+  skipCall(callId: string, reason: SkipReason, at: Date): Promise<void>
   /** AD-5: the authorization signed for this Call, so a retry finds its header. */
   readPaymentPayload(callId: string): Promise<StoredPaymentPayload | null>
 }
@@ -127,6 +135,22 @@ export interface AgentClient {
   requestUnpaid(endpoint: string, input: unknown): Promise<UnpaidResult>
   /** 15 s (AD-6), with the stored `PAYMENT-SIGNATURE` header. */
   requestPaid(endpoint: string, input: unknown, header: string): Promise<PaidResult>
+}
+
+// -------------------------------------------------------- exchange balance
+
+/**
+ * AD-11: the exchange lives only inside the execution Agent, so the engine
+ * reads `balance_usdt` for the `risk` Node over that Agent's
+ * `GET /internal/balance` and never touches an exchange client itself.
+ *
+ * The port is one method because that is the whole of what the engine is
+ * allowed to know about an exchange. A failed read throws; the engine turns
+ * that into the pre-payment refusal the criteria name.
+ */
+export interface ExchangeBalance {
+  /** Decimal USDT (`InternalBalance`, AD-14). Throws on any failure. */
+  balanceUsdt(): Promise<string>
 }
 
 export type { StoredPaymentPayload }

@@ -1,350 +1,38 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Clock, StoredPaymentPayload } from '@agent-desk/core/ports'
-import type { SigningOutcome, SignedPayment } from '@agent-desk/core/signing'
+import type { StoredPaymentPayload } from '@agent-desk/core/ports'
 import { RUN_DEADLINE_MS } from '@agent-desk/core/run'
-import type { CallStatus, PriceLock, RunStatus, SkipReason } from '@agent-desk/schemas'
-import { createRunEngine, type RunEngineDeps } from './engine.ts'
-import type {
-  AgentClient,
-  CallPatch,
-  PaidResult,
-  PaymentRequiredPayload,
-  RunCallRecord,
-  RunRecord,
-  RunStore,
-  UnpaidResult,
-} from './ports.ts'
+import type { CallStatus, RunStatus } from '@agent-desk/schemas'
+import type { PaymentRequiredPayload, RunRecord } from './ports.ts'
+import {
+  ASSET,
+  DATA_OUTPUT,
+  FROM,
+  HEADER,
+  NONCE,
+  OTHER,
+  PAY_TO,
+  PRICE_LOCK,
+  START,
+  STORED_PAYLOAD,
+  TX_HASH,
+  accepts,
+  harness,
+  paidOk,
+  paymentRequired,
+  pendingCall,
+  type Harness,
+} from './test-doubles.ts'
 
 /**
- * The run engine against in-memory doubles of its two ports plus a fake signer,
- * a fake chain and a fake market-data read.
+ * The run engine over one Node, against the in-memory doubles of `test-doubles.ts`.
  *
  * Nothing here touches Postgres, a socket or a chain: the point is to pin the
  * *decisions* — which of the seven Call statuses is written, whether a signature
  * happens at all, how many paid attempts go out and with which header, what a
- * lost compare-and-set does — because those are the parts that cannot be checked
- * against testnet until tUSD is deployed and a wallet is funded.
- *
- * `FakeStore` mimics the one thing about the SQL that matters: `endRun` is a
- * compare-and-set from `running` and reports whether it matched.
+ * lost compare-and-set does. The five-Node chain, the skips, the order guards
+ * and the terminal `notify` filter are in `chain.test.ts`; the real handshake
+ * against a real chain is in the two integration files.
  */
-
-const ASSET = '0xd0e0851ca8a176d211e2a410f5bcf1fa440fada7'
-const PAY_TO = '0x1e4a2f7d3c9b60518a7d3f2c4b8e91d0a6c73f52'
-const OTHER = '0x8b21c6d4e70f9a3b52c1d8e46f70a9b3c25d18e4'
-const FROM = '0xa71c3d90e5b28f4607c93d1a2b85e04f7d16c982'
-const NONCE = `0x${'ab'.repeat(32)}` as const
-const TX_HASH = `0x${'3c'.repeat(32)}`
-const HEADER = 'eyJzaWduZWQiOiJvbmNlIn0='
-const START = new Date('2026-09-06T12:00:00.000Z')
-
-const PRICE_LOCK: PriceLock = {
-  nodes: [
-    {
-      node_index: 0,
-      node_type: 'data',
-      listing_id: 'lst_ticker',
-      provider: 'Binance Ticker',
-      price: '10000',
-      asset: ASSET,
-      network: 'eip155:97',
-      pay_to: PAY_TO,
-    },
-  ],
-  total: '10000',
-  locked_at: '2026-09-06T12:00:00.000',
-}
-
-const DATA_OUTPUT = {
-  symbol: 'BNBUSDT',
-  price: '612.40',
-  change_24h_pct: -1.8,
-  volatility_24h_pct: 3.2,
-  ts: '2026-09-06T12:00:03Z',
-}
-
-function accepts(overrides: Partial<PaymentRequiredPayload['accepts'][number]> = {}) {
-  return {
-    scheme: 'exact',
-    network: 'eip155:97',
-    asset: ASSET,
-    amount: '10000',
-    payTo: PAY_TO,
-    maxTimeoutSeconds: 15,
-    extra: { name: 'tUSD', version: '1' },
-    ...overrides,
-  }
-}
-
-function paymentRequired(
-  entries: PaymentRequiredPayload['accepts'] = [accepts()],
-): PaymentRequiredPayload {
-  return { x402Version: 2, accepts: entries }
-}
-
-// ------------------------------------------------------------------ doubles
-
-interface StoredCall extends RunCallRecord {
-  paymentRequired: unknown
-  paymentTxHash: string | null
-  referencePrice: string | null
-  referenceAt: Date | null
-  failureReason: string | null
-  skipReason: SkipReason | null
-  startedAt: Date | null
-  endedAt: Date | null
-  payload: StoredPaymentPayload | null
-}
-
-class FakeStore implements RunStore {
-  run: {
-    record: Omit<RunRecord, 'calls'>
-    endedAt: Date | null
-    failureReason: string | null
-  }
-  calls: StoredCall[]
-  /** Set by a test to make the compare-and-set lose, as a second writer would. */
-  endedByAnotherWriter: RunStatus | null = null
-  endRunAttempts: { status: RunStatus; applied: boolean }[] = []
-  skipSweeps: { reason: SkipReason; count: number }[] = []
-
-  constructor(options: { calls: StoredCall[]; run?: Partial<RunRecord> }) {
-    this.calls = options.calls
-    this.run = {
-      record: {
-        id: 'run_1',
-        workflowId: 'wf_1',
-        accountId: 'acc_1',
-        walletId: 'wal_1',
-        status: 'running',
-        priceLock: PRICE_LOCK,
-        startedAt: null,
-        symbol: 'BNBUSDT',
-        orderCapUsdt: null,
-        telegramChatId: null,
-        nodeTypes: ['data'],
-        ...options.run,
-      },
-      endedAt: null,
-      failureReason: null,
-    }
-  }
-
-  load(runId: string): Promise<RunRecord | null> {
-    if (runId !== this.run.record.id) return Promise.resolve(null)
-    return Promise.resolve({
-      ...this.run.record,
-      calls: this.calls.map((call) => ({ ...call, hasPaymentPayload: call.payload !== null })),
-    })
-  }
-
-  markStarted(_runId: string, at: Date): Promise<Date> {
-    this.run.record.startedAt ??= at
-    return Promise.resolve(this.run.record.startedAt)
-  }
-
-  updateCall(callId: string, patch: CallPatch): Promise<void> {
-    const call = this.calls.find((candidate) => candidate.callId === callId)
-    if (!call) throw new Error(`no call ${callId}`)
-    if (patch.status !== undefined) call.status = patch.status
-    if (patch.request !== undefined) call.request = patch.request
-    if (patch.response !== undefined) call.response = patch.response
-    if (patch.paymentRequired !== undefined) call.paymentRequired = patch.paymentRequired
-    if (patch.paymentTxHash !== undefined) call.paymentTxHash = patch.paymentTxHash
-    if (patch.attempt !== undefined) call.attempt = patch.attempt
-    if (patch.referencePrice !== undefined) call.referencePrice = patch.referencePrice
-    if (patch.referenceAt !== undefined) call.referenceAt = patch.referenceAt
-    if (patch.failureReason !== undefined) call.failureReason = patch.failureReason
-    if (patch.endedAt !== undefined) call.endedAt = patch.endedAt
-    if (patch.startedAt !== undefined) call.startedAt ??= patch.startedAt
-    return Promise.resolve()
-  }
-
-  /** AD-4: a compare-and-set from `running`, exactly as the SQL guards it. */
-  endRun(
-    _runId: string,
-    status: RunStatus,
-    at: Date,
-    failureReason: string | null,
-  ): Promise<boolean> {
-    if (this.endedByAnotherWriter) {
-      this.run.record.status = this.endedByAnotherWriter
-    }
-    const applied = this.run.record.status === 'running'
-    this.endRunAttempts.push({ status, applied })
-    if (!applied) return Promise.resolve(false)
-    this.run.record.status = status
-    this.run.endedAt = at
-    this.run.failureReason = failureReason
-    return Promise.resolve(true)
-  }
-
-  skipPendingCalls(_runId: string, reason: SkipReason, at: Date): Promise<number> {
-    let count = 0
-    for (const call of this.calls) {
-      if (call.status !== 'pending') continue
-      call.status = 'skipped'
-      call.skipReason = reason
-      call.endedAt = at
-      count += 1
-    }
-    this.skipSweeps.push({ reason, count })
-    return Promise.resolve(count)
-  }
-
-  readPaymentPayload(callId: string): Promise<StoredPaymentPayload | null> {
-    return Promise.resolve(this.calls.find((call) => call.callId === callId)?.payload ?? null)
-  }
-}
-
-class FakeAgent implements AgentClient {
-  unpaid: UnpaidResult[] = [{ kind: 'payment_required', payload: paymentRequired() }]
-  paid: PaidResult[] = []
-  unpaidCalls: { endpoint: string; input: unknown }[] = []
-  paidCalls: { endpoint: string; input: unknown; header: string }[] = []
-
-  requestUnpaid(endpoint: string, input: unknown): Promise<UnpaidResult> {
-    this.unpaidCalls.push({ endpoint, input })
-    const next = this.unpaid.length > 1 ? this.unpaid.shift() : this.unpaid[0]
-    return Promise.resolve(next ?? { kind: 'transport', detail: 'no scripted unpaid response' })
-  }
-
-  requestPaid(endpoint: string, input: unknown, header: string): Promise<PaidResult> {
-    this.paidCalls.push({ endpoint, input, header })
-    const next = this.paid.length > 1 ? this.paid.shift() : this.paid[0]
-    return Promise.resolve(next ?? { kind: 'transport', detail: 'no scripted paid response' })
-  }
-}
-
-function paidOk(body: unknown = DATA_OUTPUT, transaction: string | null = TX_HASH): PaidResult {
-  return {
-    kind: 'ok',
-    status: 200,
-    body,
-    settlement: transaction === null ? null : { success: true, transaction },
-  }
-}
-
-function pendingCall(overrides: Partial<StoredCall> = {}): StoredCall {
-  return {
-    callId: 'call_0',
-    nodeIndex: 0,
-    nodeType: 'data',
-    status: 'pending',
-    attempt: 0,
-    hasPaymentPayload: false,
-    listingId: 'lst_ticker',
-    provider: 'Binance Ticker',
-    endpoint: 'https://ticker.test/',
-    lockedPrice: '10000',
-    lockedPayTo: PAY_TO,
-    lockedAsset: ASSET,
-    lockedNetwork: 'eip155:97',
-    request: null,
-    response: null,
-    paymentRequired: null,
-    paymentTxHash: null,
-    referencePrice: null,
-    referenceAt: null,
-    failureReason: null,
-    skipReason: null,
-    startedAt: null,
-    endedAt: null,
-    payload: null,
-    ...overrides,
-  }
-}
-
-const STORED_PAYLOAD: StoredPaymentPayload = {
-  header: HEADER,
-  nonce: NONCE,
-  validAfter: '0',
-  validBefore: '9999999999',
-  from: FROM,
-  to: PAY_TO,
-  value: '10000',
-  signature: `0x${'cd'.repeat(65)}`,
-}
-
-interface Harness {
-  store: FakeStore
-  agent: FakeAgent
-  engine: ReturnType<typeof createRunEngine>
-  signPaymentCalls: unknown[]
-  authorizationChecks: { authorizer: string; nonce: string }[]
-  lastPriceCalls: string[]
-  now: Date
-  advance(ms: number): void
-}
-
-function harness(options: {
-  calls?: StoredCall[]
-  run?: Partial<RunRecord>
-  sign?: () => SigningOutcome<SignedPayment>
-  authorizationUsed?: boolean | (() => Promise<boolean>)
-  lastPrice?: () => Promise<string>
-}): Harness {
-  const store = new FakeStore({ calls: options.calls ?? [pendingCall()], ...(options.run ? { run: options.run } : {}) })
-  const agent = new FakeAgent()
-  const signPaymentCalls: unknown[] = []
-  const authorizationChecks: { authorizer: string; nonce: string }[] = []
-  const lastPriceCalls: string[] = []
-  const state = { now: START }
-
-  const clock: Clock = { now: () => state.now }
-
-  const deps: RunEngineDeps = {
-    store,
-    agent,
-    clock,
-    signing: {
-      signPayment: (walletId, requirements) => {
-        signPaymentCalls.push({ walletId, requirements })
-        const outcome =
-          options.sign?.() ??
-          ({ ok: true, header: HEADER, payload: STORED_PAYLOAD, reused: false } as const)
-        if (outcome.ok) {
-          // AD-5: the authorization and `paid_awaiting_result` land together.
-          const call = store.calls.find((c) => c.callId === requirements.call.callId)
-          if (call) {
-            call.status = 'paid_awaiting_result'
-            call.payload = STORED_PAYLOAD
-            call.startedAt ??= state.now
-          }
-        }
-        return Promise.resolve(outcome)
-      },
-    },
-    chain: {
-      authorizationUsed: (authorizer, nonce) => {
-        authorizationChecks.push({ authorizer, nonce })
-        const used = options.authorizationUsed ?? false
-        return typeof used === 'function' ? used() : Promise.resolve(used)
-      },
-    },
-    marketData: {
-      lastPrice: (symbol) => {
-        lastPriceCalls.push(symbol)
-        return options.lastPrice?.() ?? Promise.resolve('612.40')
-      },
-    },
-  }
-
-  return {
-    store,
-    agent,
-    engine: createRunEngine(deps),
-    signPaymentCalls,
-    authorizationChecks,
-    lastPriceCalls,
-    get now() {
-      return state.now
-    },
-    advance(ms: number) {
-      state.now = new Date(state.now.getTime() + ms)
-    },
-  }
-}
 
 const JOB = { run_id: 'run_1' }
 

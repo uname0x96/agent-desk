@@ -20,11 +20,12 @@ export interface JobDeps {
  * Registers `listing.verify` and `listing.write`.
  *
  * AD-2: `listing.verify` is the one pipeline that puts a Listing on chain —
- * verification Call, then `IdentityRegistry.register(agentURI)`, then
- * `AgentDeskRegistry.list(...)` with the Stake, each step reached only because
- * the one before it succeeded. The body is `createListingVerifyJob` in
- * `packages/core/listing`; the ports it depends on are assembled by
- * `buildListingVerify`, which the integration test drives directly.
+ * the paid verification Call (Story 3.4), then
+ * `IdentityRegistry.register(agentURI)`, then `AgentDeskRegistry.list(...)`
+ * with the Stake, each step reached only because the one before it succeeded.
+ * The body is `createListingVerifyJob` in `packages/core/listing`; the ports it
+ * depends on are assembled by `buildListingVerify`, which the integration test
+ * drives directly.
  *
  * The queue is `exclusive` with `listing_id` as its singleton key (see
  * `packages/db/queues`), so one Listing is never verified twice at once. The job
@@ -41,7 +42,9 @@ export async function registerListingJobs(deps: JobDeps): Promise<void> {
     engine: deps.engine,
     chainId: env.CHAIN_ID,
     rpcUrls: env.RPC_URLS,
+    facilitatorUrl: deps.facilitatorUrl,
     publicBaseUrl: deps.publicBaseUrl,
+    platformChatId: platformChatId(),
     logger: adaptLogger(deps.logger),
   })
 
@@ -59,6 +62,24 @@ export async function registerListingJobs(deps: JobDeps): Promise<void> {
   })
 
   deps.logger.info({ queue: QUEUES.listingVerify }, 'listing jobs registered')
+}
+
+/**
+ * Addendum §1 / conventions: `PLATFORM_CHAT_ID` lives only in the worker, and
+ * `listing.verify` is its only reader — it replaces `recipient.address` in the
+ * `notify` sample so that verifying a `notify` Agent delivers a real message to
+ * the Platform chat.
+ *
+ * It is read here rather than through `../env.ts` because that schema belongs
+ * to another story's file; a `PLATFORM_CHAT_ID` entry of optional digits is the
+ * change this asks for there. Until it lands, an unset or malformed value
+ * leaves the sample's own placeholder in place, which is what a `notify`
+ * verification did before this story: a delivery that fails is the Agent's
+ * answer, not a crash here.
+ */
+function platformChatId(): string | undefined {
+  const value = process.env.PLATFORM_CHAT_ID?.trim()
+  return value && /^-?\d+$/.test(value) ? value : undefined
 }
 
 /** Pino satisfies the port already; this narrows it to the four levels it names. */
