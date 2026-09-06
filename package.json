@@ -13,7 +13,8 @@
     "seed": "tsx scripts/src/seed.ts",
     "doctor": "tsx scripts/src/doctor.ts",
     "db:generate": "pnpm --filter @agent-desk/db generate",
-    "db:migrate": "pnpm --filter @agent-desk/db migrate"
+    "db:migrate": "pnpm --filter @agent-desk/db migrate",
+    "local:chain": "pnpm --filter @agent-desk/scripts local:chain"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -12,7 +12,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "seed": "tsx src/seed.ts",
-    "doctor": "tsx src/doctor.ts"
+    "doctor": "tsx src/doctor.ts",
+    "local:chain": "tsx src/local-chain.ts"
   },
   "dependencies": {
     "@agent-desk/schemas": "workspace:*",

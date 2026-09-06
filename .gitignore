@@ -19,3 +19,6 @@ _bmad-output/**/.memlog.md
 
 # Local secrets, never committed
 .secrets/
+
+# Local Anvil runtime state
+.local-chain/
