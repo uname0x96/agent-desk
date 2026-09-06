@@ -1,0 +1,21 @@
+{
+  "name": "@agent-desk/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./run": "./src/run/index.ts",
+    "./signing": "./src/signing/index.ts",
+    "./settlement": "./src/settlement/index.ts",
+    "./ports": "./src/ports/index.ts",
+    "./workflow": "./src/workflow/index.ts",
+    "./mode": "./src/mode.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-desk/schemas": "workspace:*"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@agent-desk/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@agent-desk/schemas": "workspace:*",
+    "@agent-desk/core": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.7",
+    "pg-boss": "^12.30.0"
+  }
+}

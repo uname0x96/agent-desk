@@ -1,0 +1,19 @@
+{
+  "name": "@agent-desk/schemas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api/errors": "./src/api/errors.ts",
+    "./logger": "./src/logger.ts",
+    "./env": "./src/env.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.5.4",
+    "pino": "^10.1.0"
+  }
+}

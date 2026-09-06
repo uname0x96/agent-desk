@@ -1,0 +1,19 @@
+{
+  "name": "@agent-desk/facilitator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@agent-desk/schemas": "workspace:*",
+    "express": "^5.2.1",
+    "viem": "^2.56.3"
+  }
+}

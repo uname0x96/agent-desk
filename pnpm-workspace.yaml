@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - apps/agents/*
+  - packages/*
+  - scripts
+
+# pnpm 11 blocks lifecycle scripts by default; these are the ones the build needs.
+allowBuilds:
+  esbuild: true
+  bcrypt: true
+  '@tailwindcss/oxide': true
+  sharp: true
+  unrs-resolver: true

@@ -1,0 +1,27 @@
+{
+  "name": "agent-desk",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=24.19.0"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "pnpm -r --parallel exec tsc --noEmit",
+    "test": "vitest run",
+    "seed": "tsx scripts/src/seed.ts",
+    "doctor": "tsx scripts/src/doctor.ts",
+    "db:generate": "pnpm --filter @agent-desk/db generate",
+    "db:migrate": "pnpm --filter @agent-desk/db migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.10.0",
+    "tsx": "^4.23.13",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^5.0.0"
+  }
+}

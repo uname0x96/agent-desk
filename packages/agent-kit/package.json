@@ -1,0 +1,16 @@
+{
+  "name": "@agent-desk/agent-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-desk/schemas": "workspace:*",
+    "express": "^5.2.1"
+  }
+}

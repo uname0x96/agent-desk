@@ -1,0 +1,21 @@
+{
+  "name": "@agent-desk/adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./chain": "./src/chain/index.ts",
+    "./signer": "./src/signer/index.ts",
+    "./x402": "./src/x402/index.ts",
+    "./market-data": "./src/market-data/index.ts",
+    "./exchange": "./src/exchange/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-desk/schemas": "workspace:*",
+    "@agent-desk/core": "workspace:*",
+    "viem": "^2.56.3"
+  }
+}

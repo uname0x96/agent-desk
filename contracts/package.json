@@ -1,0 +1,10 @@
+{
+  "name": "@agent-desk/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build && node script/export-abi.mjs",
+    "test": "forge test",
+    "typecheck": "true"
+  }
+}

@@ -1,0 +1,127 @@
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created, ready for development
+#   - in-progress: Developer actively working on implementation
+#   - review: Implementation complete, ready for review
+#   - done: Story completed
+
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when its first story starts (via build's sprint sync)
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates the next story after the previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; the status view surfaces open ones
+generated: 09-06-2026 12:35
+last_updated: 09-06-2026 12:35
+project: agent-desk
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+development_status:
+  epic-1: backlog
+  1-1-monorepo-scaffold-and-shared-contracts-package: backlog
+  1-2-tusd-and-agentdeskregistry-deployed-on-bsc-testnet: backlog
+  1-3-self-hosted-x402-facilitator-on-eip155-97: backlog
+  1-4-database-schema-migrations-and-compose-base: backlog
+  1-5-agent-kit-and-the-binance-ticker-agent: backlog
+  1-6-signer-signing-policy-chain-writes-and-wallet-creation: backlog
+  1-7-seed-listing-pipeline-puts-binance-ticker-on-chain: backlog
+  1-8-engine-pays-one-node-with-price-lock-and-receipt: backlog
+  1-9-live-run-view-and-public-schema-page: backlog
+  1-10-seed-doctor-and-one-command-bring-up: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-sign-in-session-for-seeded-accounts: backlog
+  2-2-platform-settings-mode-constants-and-operator-controls: backlog
+  2-3-alpha-research-and-sloppy-research-agents: backlog
+  2-4-guardrail-risk-agent: backlog
+  2-5-binance-spot-executor-agent: backlog
+  2-6-telegram-notifier-agent: backlog
+  2-7-workflow-builder-with-validation-cost-preview-and-provider-s: backlog
+  2-8-engine-runs-the-full-chain-with-mapping-skips-and-order-guar: backlog
+  2-9-stop-on-failure-notify-anyway-and-the-timeout-sweep: backlog
+  2-10-six-seed-agents-listed-and-the-full-chain-rehearsed: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-sign-up-with-a-system-wallet: backlog
+  3-2-daily-fee-budget-and-telegram-chat-id-in-settings: backlog
+  3-3-listing-form-and-verification-progress: backlog
+  3-4-paid-verification-call-before-identity-and-stake: backlog
+  3-5-marketplace-browse-and-compare: backlog
+  3-6-creator-manages-price-stake-top-up-and-pause: backlog
+  3-7-a-stranger-lists-a-live-agent-in-under-30-seconds: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-settlement-tick-scores-research-and-risk-calls: backlog
+  4-2-failure-after-payment-is-scored-immediately: backlog
+  4-3-slash-and-refund-in-one-transaction-pause-at-zero-stake: backlog
+  4-4-reputation-recomputed-and-written-on-chain: backlog
+  4-5-stake-reservation-refuses-uncovered-calls: backlog
+  4-6-demo-warm-up-and-slash-rehearsal: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-dashboard-home-and-live-run-feed: backlog
+  5-2-payments-view: backlog
+  5-3-settlement-view: backlog
+  5-4-agent-detail-page: backlog
+  5-5-demo-split-view: backlog
+  epic-5-retrospective: optional
+
+# SPRINT SHAPE — Binance hackathon, submission 2026-09-08, three build days from 2026-09-06, team of five
+# ======================================================================================================
+# Day 1 (09-06): Epic 1. Story 1.1 lands first and blocks everyone; then 1.2, 1.3, 1.4, 1.5 in parallel
+#                (one owner each), then 1.6 -> 1.7 -> 1.8 with 1.9 beside 1.8, and 1.10 closes the day.
+#                Exit criterion: a Run of the seeded one-node Workflow ends `completed` with a payment
+#                tx hash on testnet.bscscan.com within 45 s (Story 1.10).
+# Day 2 (09-07): Epic 2 and Epic 3 in parallel. Story 2.1 (session) lands first thing because Epic 3
+#                builds on it. Epic 2 owns the engine, the agents, the builder and run pages, and the
+#                operator page; Epic 3 owns auth, wallets, the listing pipeline, and the marketplace.
+#                Story 3.7 needs the :4107 instance from Story 2.3.
+#                Exit criterion: the five-node good chain ends in a testnet order and a Telegram message
+#                within 45 s (Story 2.10), and a stranger lists an Agent in under 30 s (Story 3.7).
+# Day 3 (09-08): Epic 4, then Epic 5 with whatever time is left. Story 4.5 is independent of 4.1 to 4.4
+#                and can run in parallel. Epic 5's five stories are independent of each other.
+# Cut order:     Epic 5 first, then Epic 4 from 4.6 upward, then 3.6 and 3.7. Epics 1 and 2 are the
+#                demo's minimum. Any story whose epic has not started by the end of day two is cut
+#                explicitly and the cut is logged (NFR-10).
+# Submission:    a git link, a written brief of the idea and the business, and a narrated video.
+
+# Environment blockers found on the build machine 2026-09-06; clear these before Story 1.1.
+action_items:
+  - epic: 1
+    action: "git init the repo and push it to GitHub — the submission is a git link and no repository exists yet"
+    owner: "unassigned"
+    status: open
+  - epic: 1
+    action: "Install pnpm 11.25 (machine has 10.30.3) and Foundry 1.8.1 (not installed) on every build machine"
+    owner: "unassigned"
+    status: open
+  - epic: 1
+    action: "Provision and share in the team password manager: MASTER_KEY, PLATFORM_WALLET_KEY, the facilitator relayer key, the Binance Spot Testnet Ed25519 key pair, the Spot Demo Mode key pair, TELEGRAM_BOT_TOKEN, ANTHROPIC_API_KEY"
+    owner: "unassigned"
+    status: open
+  - epic: 1
+    action: "Run the four day-1 checks from the architecture spine's Open Questions before other work: ERC3009 from the OZ v5.7.0 tag compiles under Foundry with the (v, r, s) overload; the x402 facilitator example runs on eip155:97 with the Solana signer removed; the team domain is on Cloudflare DNS for a stable agentURI, else the data: URI path is taken; the faucet address holds 0.002 mainnet BNB"
+    owner: "unassigned"
+    status: open

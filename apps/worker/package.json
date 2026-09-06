@@ -1,0 +1,22 @@
+{
+  "name": "@agent-desk/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@agent-desk/schemas": "workspace:*",
+    "@agent-desk/core": "workspace:*",
+    "@agent-desk/db": "workspace:*",
+    "@agent-desk/adapters": "workspace:*",
+    "pg-boss": "^12.30.0",
+    "viem": "^2.56.3"
+  }
+}
