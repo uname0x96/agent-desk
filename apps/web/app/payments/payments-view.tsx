@@ -151,7 +151,7 @@ function RunFilterNotice({ runId }: { runId: string }) {
     <p className="flex flex-wrap items-center gap-x-3 gap-y-1 border-y border-border py-4 text-base">
       <span className="text-muted-foreground">Showing one Run:</span>
       <span className="hash">{runId}</span>
-      <Link href={paymentsHref(null)} className="text-status-running underline-offset-4 hover:underline">
+      <Link href={paymentsHref(null)} className="text-link underline-offset-4 hover:underline">
         Show every Run
       </Link>
     </p>
@@ -297,7 +297,7 @@ function RefundCell({ item }: { item: PaymentView }) {
 
   if (note.kind === "settlement") {
     return (
-      <Link href={note.href} className="text-status-running underline-offset-4 hover:underline">
+      <Link href={note.href} className="text-link underline-offset-4 hover:underline">
         {note.pending ? "Settlement pending" : "Settlement"}
       </Link>
     )

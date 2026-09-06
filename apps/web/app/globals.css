@@ -1,71 +1,105 @@
 @import "tailwindcss";
 
 /*
- * AgentDesk theme. The vendored components in components/ui expect the shadcn
- * token names (--card, --primary, --border, --ring, ...); create-next-app only
- * ships --background and --foreground, so the full set is defined here.
+ * AgentDesk theme, matched to Binance Agent OS (binance.com/vi/agent-os).
  *
+ * The palette below is not eyeballed: it is what `getComputedStyle` reports on
+ * that page, so the greys are Binance's own and not a neutral ramp that happens
+ * to look similar. Binance's dark grey is slightly blue (#181A20), which is why
+ * substituting Tailwind's neutral scale reads as "close but wrong" next to it.
+ *
+ *   #181A20  page          #EAECEF  primary text
+ *   #12161C  deeper well   #848E9C  secondary text
+ *   #1E2329  card          #707A8A  tertiary text
+ *   #202630  raised        #2B3139  divider
+ *   #FCD535  action        #474D57  border
+ *   #F0B90B  brand accent
+ *
+ * #0ECB81 / #F6465D are Binance's up/down pair. Unlike the greys those were not
+ * present on the Agent OS page to read off; they come from the exchange UI.
+ *
+ * Hex, not the oklch this file used to carry: these are brand constants copied
+ * from a reference, and a converted value that drifts by a hair is harder to
+ * check against the source than one that matches character for character.
+ *
+ * The vendored components in components/ui expect the shadcn token names
+ * (--card, --primary, --border, --ring, ...), so the full set is defined here.
  * This UI is demoed on a projector, so the base type is large and the status
  * colours are deliberately loud.
  */
 
 :root {
-  --radius: 0.625rem;
+  /* Binance rounds tightly: 4px on inputs, 8px on cards and buttons. */
+  --radius: 0.5rem;
 
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.45 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --background: #ffffff;
+  --foreground: #1e2329;
+  --card: #ffffff;
+  --card-foreground: #1e2329;
+  --popover: #ffffff;
+  --popover-foreground: #1e2329;
+
+  /* Yellow carries dark text in both modes; Binance never inverts this pair. */
+  --primary: #fcd535;
+  --primary-foreground: #1e2329;
+
+  --secondary: #f5f5f5;
+  --secondary-foreground: #1e2329;
+  --muted: #fafafa;
+  --muted-foreground: #707a8a;
+  --accent: #f5f5f5;
+  --accent-foreground: #1e2329;
+  --destructive: #f6465d;
+  --destructive-foreground: #ffffff;
+  --border: #eaecef;
+  --input: #eaecef;
+  --ring: #f0b90b;
 
   /* Run and Call status colours, AD-13 status vocabulary. */
-  --status-running: oklch(0.62 0.17 255);
-  --status-ok: oklch(0.58 0.16 155);
-  --status-warn: oklch(0.72 0.17 75);
-  --status-bad: oklch(0.58 0.22 27);
-  --status-idle: oklch(0.6 0 0);
+  --status-running: #4a9fe8;
+  --status-ok: #0ecb81;
+  --status-warn: #f0b90b;
+  --status-bad: #f6465d;
+  --status-idle: #929aa5;
+
+  /* Links were reusing --status-running, which made "this Run is running" and
+     "this is a link" the same colour and meant a palette change had to move
+     both or neither. Binance links are the brand yellow; on the light surface
+     that yellow fails contrast, so light mode darkens it rather than falling
+     back to a blue that belongs to no part of this palette. */
+  --link: #b8860f;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.72 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 14%);
-  --input: oklch(1 0 0 / 18%);
-  --ring: oklch(0.556 0 0);
+  --background: #181a20;
+  --foreground: #eaecef;
+  --card: #1e2329;
+  --card-foreground: #eaecef;
+  --popover: #202630;
+  --popover-foreground: #eaecef;
 
-  --status-running: oklch(0.72 0.16 255);
-  --status-ok: oklch(0.74 0.16 155);
-  --status-warn: oklch(0.8 0.16 75);
-  --status-bad: oklch(0.7 0.2 22);
-  --status-idle: oklch(0.7 0 0);
+  --primary: #fcd535;
+  --primary-foreground: #1e2329;
+
+  --secondary: #2b3139;
+  --secondary-foreground: #eaecef;
+  --muted: #12161c;
+  --muted-foreground: #848e9c;
+  --accent: #2b3139;
+  --accent-foreground: #eaecef;
+  --destructive: #f6465d;
+  --destructive-foreground: #ffffff;
+  --border: #2b3139;
+  --input: #474d57;
+  --ring: #f0b90b;
+
+  --status-running: #5aa9f0;
+  --status-ok: #0ecb81;
+  --status-warn: #f0b90b;
+  --status-bad: #f6465d;
+  --status-idle: #707a8a;
+
+  --link: #f0b90b;
 }
 
 @theme inline {
@@ -94,9 +128,10 @@
   --color-status-warn: var(--status-warn);
   --color-status-bad: var(--status-bad);
   --color-status-idle: var(--status-idle);
+  --color-link: var(--link);
 
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-ui-sans);
+  --font-mono: var(--font-ui-mono);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -114,6 +149,12 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  }
+
+  /* Binance sets headings tighter and heavier than its body copy; without this
+     the type reads as a generic dashboard even once the colours are right. */
+  h1, h2, h3 {
+    letter-spacing: -0.02em;
   }
 }
 

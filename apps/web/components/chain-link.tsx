@@ -29,7 +29,7 @@ function ChainLink({
       rel="noreferrer noopener"
       title={title}
       className={cn(
-        "hash inline-flex items-center gap-1 text-status-running underline-offset-4 hover:underline",
+        "hash inline-flex items-center gap-1 text-link underline-offset-4 hover:underline",
         className,
       )}
     >

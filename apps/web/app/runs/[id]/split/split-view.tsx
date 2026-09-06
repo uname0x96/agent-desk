@@ -105,7 +105,7 @@ function SplitHeader({ model, updatedAt }: { model: SplitViewModel; updatedAt: n
           </span>
           <Link
             href={`/runs/${model.run_id}`}
-            className="text-xs font-medium text-status-running underline-offset-4 hover:underline"
+            className="text-xs font-medium text-link underline-offset-4 hover:underline"
           >
             Full Run view
           </Link>

@@ -250,7 +250,7 @@ function RunLink({ runId }: { runId: string | null }) {
   return (
     <Link
       href={`/runs/${runId}`}
-      className="hash text-sm text-status-running underline-offset-4 hover:underline"
+      className="hash text-sm text-link underline-offset-4 hover:underline"
     >
       {runId}
     </Link>

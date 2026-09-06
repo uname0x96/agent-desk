@@ -118,7 +118,7 @@ function Header({ listing }: { listing: ListingResponse }) {
         </div>
         <Link
           href={`/marketplace?type=${listing.type}`}
-          className="text-sm text-status-running underline-offset-4 hover:underline"
+          className="text-sm text-link underline-offset-4 hover:underline"
         >
           Back to the marketplace
         </Link>
@@ -233,7 +233,7 @@ function RegistryId({
             rel="noreferrer noopener"
             title={`${contract} at ${checksummed}`}
             data-registry={contract}
-            className="hash inline-flex w-fit items-baseline gap-1.5 text-2xl font-semibold text-status-running underline-offset-4 hover:underline"
+            className="hash inline-flex w-fit items-baseline gap-1.5 text-2xl font-semibold text-link underline-offset-4 hover:underline"
           >
             #{value}
             <ExternalLinkIcon className="size-4 shrink-0 self-center" aria-hidden />

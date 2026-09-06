@@ -30,7 +30,17 @@ export function Providers({ explorerUrl, children }: { explorerUrl: string; chil
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      {/* Dark is the product's own look, not a preference: the palette is
+          Binance's and Binance Agent OS is dark. `enableSystem` is off because
+          following the OS would hand half the audience a theme nobody chose —
+          including, on a borrowed laptop, the demo. Light is still defined and
+          still reachable, so this is a default rather than a lock. */}
+      <ThemeProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem={false}
+        disableTransitionOnChange
+      >
         <ExplorerProvider value={explorerUrl}>
           {children}
           <Toaster position="top-right" richColors />

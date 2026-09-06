@@ -1,13 +1,20 @@
 import type { Metadata } from "next"
 import type { ReactNode } from "react"
-import { Geist, Geist_Mono } from "next/font/google"
+import { Inter, IBM_Plex_Mono } from "next/font/google"
 import { Providers } from "./providers.tsx"
 import { SiteHeader } from "../components/site-header.tsx"
 import { explorerBaseUrl } from "../lib/explorer.ts"
 import "./globals.css"
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] })
+// Binance sets its UI in BinanceNova and its numerals in BinancePlex, neither of
+// which is licensed for redistribution. Inter is the closest free grotesque, and
+// BinancePlex derives from IBM Plex, so the mono side matches at the source.
+const uiSans = Inter({ variable: "--font-ui-sans", subsets: ["latin"] })
+const uiMono = IBM_Plex_Mono({
+  variable: "--font-ui-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+})
 
 export const metadata: Metadata = {
   title: "AgentDesk",
@@ -23,7 +30,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${uiSans.variable} ${uiMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col text-[15px] leading-relaxed">
         <Providers explorerUrl={explorerUrl}>
