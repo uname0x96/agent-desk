@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-06-2026 12:35
-last_updated: 09-06-2026 19:40
+last_updated: 09-06-2026 20:00
 project: agent-desk
 project_key: NOKEY
 tracking_system: file-system
@@ -48,7 +48,7 @@ development_status:
   1-10-seed-doctor-and-one-command-bring-up: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-sign-in-session-for-seeded-accounts: done
   2-2-platform-settings-mode-constants-and-operator-controls: done
   2-3-alpha-research-and-sloppy-research-agents: done
@@ -58,7 +58,7 @@ development_status:
   2-7-workflow-builder-with-validation-cost-preview-and-provider-s: done
   2-8-engine-runs-the-full-chain-with-mapping-skips-and-order-guar: done
   2-9-stop-on-failure-notify-anyway-and-the-timeout-sweep: done
-  2-10-six-seed-agents-listed-and-the-full-chain-rehearsed: in-progress
+  2-10-six-seed-agents-listed-and-the-full-chain-rehearsed: done
   epic-2-retrospective: optional
 
   epic-3: done
@@ -71,13 +71,13 @@ development_status:
   3-7-a-stranger-lists-a-live-agent-in-under-30-seconds: done
   epic-3-retrospective: optional
 
-  epic-4: in-progress
+  epic-4: done
   4-1-settlement-tick-scores-research-and-risk-calls: done
   4-2-failure-after-payment-is-scored-immediately: done
   4-3-slash-and-refund-in-one-transaction-pause-at-zero-stake: done
   4-4-reputation-recomputed-and-written-on-chain: done
   4-5-stake-reservation-refuses-uncovered-calls: done
-  4-6-demo-warm-up-and-slash-rehearsal: in-progress
+  4-6-demo-warm-up-and-slash-rehearsal: done
   epic-4-retrospective: optional
 
   epic-5: done
@@ -130,7 +130,7 @@ action_items:
     owner: "unassigned"
     status: done
   - epic: 1
-    action: "deployments/97.json currently holds the local Anvil addresses, because `pnpm local:chain up` is running and rewrote it. The tracked BSC testnet file at .local-chain/deployments-97.bsc-testnet.json still has zero addresses - the contracts have never been deployed to the real testnet, because the wallets are unfunded. Run `pnpm local:chain down`, fund the wallets, then deploy for real before submitting"
+    action: "Deploy the contracts to the real BSC testnet. deployments/97.json is restored to zero addresses, which is honest - tUSD and AgentDeskRegistry have never been deployed to the public testnet because the wallets are unfunded. Everything above was proven against a local Anvil chain on the same eip155:97 binding. Fund the wallets from the faucet item above, run forge script Deploy, and commit the real addresses"
     owner: "unassigned"
     status: open
   - epic: 5

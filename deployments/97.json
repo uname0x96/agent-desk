@@ -2,19 +2,19 @@
   "chainId": 97,
   "name": "bsc-testnet",
   "tusd": {
-    "address": "0xD0e0851Ca8A176D211e2A410F5bcf1fA440FaDa7",
+    "address": "0x0000000000000000000000000000000000000000",
     "name": "tUSD",
     "version": "1",
     "decimals": 6
   },
   "registry": {
-    "address": "0xFC1e9C98d8245550455487227a3810F340142C6d"
+    "address": "0x0000000000000000000000000000000000000000"
   },
   "identityRegistry": {
     "address": "0x8004A818BFB912233c491871b3d84c89A494BD9e"
   },
   "deployedAtBlock": {
-    "tusd": 1,
-    "registry": 1
+    "tusd": 0,
+    "registry": 0
   }
 }
