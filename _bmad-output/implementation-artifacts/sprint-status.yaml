@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-06-2026 12:35
-last_updated: 09-06-2026 19:20
+last_updated: 09-06-2026 19:40
 project: agent-desk
 project_key: NOKEY
 tracking_system: file-system
@@ -80,12 +80,12 @@ development_status:
   4-6-demo-warm-up-and-slash-rehearsal: in-progress
   epic-4-retrospective: optional
 
-  epic-5: in-progress
-  5-1-dashboard-home-and-live-run-feed: in-progress
-  5-2-payments-view: in-progress
-  5-3-settlement-view: in-progress
-  5-4-agent-detail-page: in-progress
-  5-5-demo-split-view: in-progress
+  epic-5: done
+  5-1-dashboard-home-and-live-run-feed: done
+  5-2-payments-view: done
+  5-3-settlement-view: done
+  5-4-agent-detail-page: done
+  5-5-demo-split-view: done
   epic-5-retrospective: optional
 
 # SPRINT SHAPE — Binance hackathon, submission 2026-09-08, three build days from 2026-09-06, team of five
