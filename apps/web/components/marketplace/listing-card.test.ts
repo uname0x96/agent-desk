@@ -76,6 +76,11 @@ describe('a marketplace card', () => {
     expect(body).toContain('#11')
   })
 
+  /** Story 5.4: the card is the summary, `/agents/<id>` is the evidence. */
+  it('links its name to the Agent detail page', () => {
+    expect(markup).toContain(`href="/agents/${alphaResearch.id}"`)
+  })
+
   it('links the owner address to the explorer, checksummed', () => {
     const checksummed = checksumAddress(alphaResearch.owner_address as string)
     expect(checksummed).not.toBe(alphaResearch.owner_address)
@@ -139,5 +144,17 @@ describe('the grid', () => {
       markup.indexOf(`data-listing-id="${listing.id}"`),
     )
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  it('links every card to its Agent detail page (Story 5.4)', () => {
+    const markup = renderToStaticMarkup(
+      createElement(ExplorerProvider, {
+        value: EXPLORER,
+        children: createElement(ListingGrid, { listings: marketplaceFixture }),
+      }),
+    )
+    for (const listing of marketplaceFixture) {
+      expect(markup).toContain(`href="/agents/${listing.id}"`)
+    }
   })
 })

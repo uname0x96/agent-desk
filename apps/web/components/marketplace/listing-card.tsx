@@ -1,9 +1,11 @@
 import type { ReactNode } from "react"
+import Link from "next/link"
 import { cn } from "cn"
 import type { AgentType, ListingResponse } from "@agent-desk/schemas"
 import { AddressLink } from "../chain-link.tsx"
 import { StatusBadge } from "../status-badge.tsx"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card.tsx"
+import { agentHref } from "../../app/agents/agent-query.ts"
 import { formatUsdt, TOKEN_LABEL } from "../../lib/format.ts"
 import {
   listingStatusLabel,
@@ -24,6 +26,10 @@ import {
  * `action` is the slot the Workflow Builder's Provider picker fills with its
  * select control; the picker reads `listingStatusLabel(listing).selectable`
  * for whether to disable it (FR-8).
+ *
+ * Story 5.4: the name is the link to `/agents/<listing_id>`, the Agent's full
+ * on-chain record — price history, Reputation history, Stake and the paid
+ * verification Call. A card is the summary; that page is the evidence behind it.
  */
 export function ListingCard({
   listing,
@@ -53,7 +59,12 @@ export function ListingCard({
 
         <div className="flex items-baseline justify-between gap-x-4">
           <CardTitle className="min-w-0 text-2xl leading-tight font-bold tracking-tight">
-            {listing.name}
+            <Link
+              href={agentHref(listing.id)}
+              className="underline-offset-4 hover:underline focus-visible:underline"
+            >
+              {listing.name}
+            </Link>
           </CardTitle>
           <p className="flex shrink-0 items-baseline gap-1.5 whitespace-nowrap">
             <span className="text-2xl font-semibold tabular-nums">{formatUsdt(listing.price)}</span>

@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
-import { ERROR_STATUS, apiError, createRunRequest } from '@agent-desk/schemas'
+import { ERROR_STATUS, apiError, createRunRequest, runsResponse } from '@agent-desk/schemas'
 import { createRunDeps, database } from './context.ts'
 import { createRun } from './create-run.ts'
+import { parseRunFeedQuery, selectRunsForAccount, toRunFeedPage } from './list-runs.ts'
 import { readRun } from './read-run.ts'
+import { jsonError, jsonOk } from '../../../lib/route.ts'
+import { requireSession } from '../../../lib/session.ts'
 
 /**
  * `POST /api/runs { workflow_id }` (FR-22, AD-4).
@@ -25,6 +28,37 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 const NO_STORE = { 'cache-control': 'no-store' } as const
+
+/**
+ * `GET /api/runs?limit=&cursor=` — the dashboard's live Run feed (FR-39,
+ * Story 5.1).
+ *
+ * `{ items, next }` of the signed-in account's Runs, newest first, each with
+ * its Workflow name, its status and failure reason, its Node Types with the
+ * status of each Call, the AD-3 `total_cost` as a base-unit string, and its
+ * three timestamps. The account id comes from the iron-session cookie, never
+ * from the request, so this route can only ever answer the caller's own Runs.
+ *
+ * The body is parsed against `runsResponse` before it is sent, so this route
+ * can never ship a shape the client's own parse would reject (AD-14). AD-12:
+ * nothing is pushed — the dashboard polls this, every 2 s while any listed Run
+ * is `running` and every 10 s otherwise.
+ */
+export async function GET(request: Request) {
+  const guard = await requireSession()
+  if (!guard.ok) return guard.response
+
+  const { limit, cursor } = parseRunFeedQuery(new URL(request.url).searchParams)
+  const rows = await selectRunsForAccount(database(), guard.session.account_id, limit, cursor)
+
+  const body = runsResponse.safeParse(toRunFeedPage(rows, limit))
+  if (!body.success) {
+    return jsonError('internal_error', 'the runs body did not match its schema', {
+      issues: body.error.issues,
+    })
+  }
+  return jsonOk(body.data, 200)
+}
 
 export async function POST(request: Request) {
   let payload: unknown
