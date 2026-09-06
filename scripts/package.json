@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/seed.ts"
+    ".": "./src/seed.ts",
+    "./env": "./src/env.ts",
+    "./wiring": "./src/wiring/index.ts",
+    "./platform-wallet": "./src/platform-wallet.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
