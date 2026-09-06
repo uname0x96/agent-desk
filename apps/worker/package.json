@@ -17,6 +17,9 @@
     "@agent-desk/db": "workspace:*",
     "@agent-desk/adapters": "workspace:*",
     "pg-boss": "^12.30.0",
-    "viem": "^2.56.3"
+    "viem": "^2.56.3",
+    "pino": "^10.1.0",
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
   }
 }

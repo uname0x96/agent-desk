@@ -13,6 +13,9 @@
   },
   "dependencies": {
     "@agent-desk/schemas": "workspace:*",
-    "@agent-desk/agent-kit": "workspace:*"
+    "@agent-desk/agent-kit": "workspace:*",
+    "express": "^5.2.1",
+    "pino": "^10.1.0",
+    "grammy": "^1.46.0"
   }
 }

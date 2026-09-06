@@ -16,7 +16,10 @@
     "@agent-desk/schemas": "workspace:*",
     "@agent-desk/core": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.7",
+    "postgres": "^3.4.9",
     "pg-boss": "^12.30.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10"
   }
 }

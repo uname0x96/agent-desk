@@ -16,6 +16,10 @@
   "dependencies": {
     "@agent-desk/schemas": "workspace:*",
     "@agent-desk/core": "workspace:*",
-    "viem": "^2.56.3"
+    "viem": "^2.56.3",
+    "@x402/fetch": "^2.25.0",
+    "@x402/evm": "^2.25.0",
+    "@x402/core": "^2.25.0",
+    "pino": "^10.1.0"
   }
 }

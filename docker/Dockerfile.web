@@ -1,0 +1,17 @@
+FROM node:24-alpine
+
+RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
+WORKDIR /app
+
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+COPY packages ./packages
+COPY apps ./apps
+COPY scripts ./scripts
+COPY deployments ./deployments
+
+RUN pnpm install --frozen-lockfile --ignore-scripts=false
+RUN pnpm --filter @agent-desk/web build
+
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@agent-desk/web", "start"]
