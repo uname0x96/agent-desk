@@ -136,3 +136,13 @@ types beyond the fixed five. Third-party `execution` agents. Branching or
 scheduled workflows. Dispute handling. An independent settlement judge. Fee
 collection. The settlement rules are crude on purpose, and the demo labels its
 shortened rule on screen rather than hiding it.
+
+## The agentURI decision
+
+`PUBLIC_BASE_URL` is deliberately left unset, so every ERC-8004 `agentURI` is a
+self-contained `data:` URI rather than a URL on a host we would have to keep
+resolving. That needs no DNS, no tunnel, and no human, and an indexer can read
+the record with no request back to us. Set `PUBLIC_BASE_URL` to a real public
+origin only if you want the hosted `agent.json` instead; `pnpm run doctor`
+refuses a loopback or a `trycloudflare.com` host, because an identity row
+pointing at a name nobody else can resolve is worse than no name at all.
