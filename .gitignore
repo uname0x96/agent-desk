@@ -15,10 +15,23 @@ contracts/out/
 contracts/cache/
 contracts/broadcast/
 contracts/lib/
-_bmad-output/**/.memlog.md
 
 # Local secrets, never committed
 .secrets/
 
 # Local Anvil runtime state
 .local-chain/
+
+# Local planning and assistant tooling
+/_bmad-output/
+/_bmad/
+/.agents/
+/.claude/
+
+# Generated demos, browser captures and temporary work
+/output/
+/.playwright-mcp/
+/.codex-tmp/
+/tmp/
+*.log
+__pycache__/

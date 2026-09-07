@@ -32,7 +32,7 @@ const NO_APPS = [
 ]
 
 export default tseslint.config(
-  { ignores: ['**/node_modules/**', '**/.next/**', '**/dist/**', 'contracts/**', '_bmad/**', '_bmad-output/**'] },
+  { ignores: ['**/node_modules/**', '**/.next/**', '**/dist/**', 'contracts/**', '_bmad/**', '_bmad-output/**', 'output/**', '.playwright-mcp/**', '.codex-tmp/**', 'tmp/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
